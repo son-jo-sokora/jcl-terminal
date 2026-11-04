@@ -155,6 +155,9 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
       <span><kbd>/$HJ</kbd> <kbd>/$AJ</kbd></span><span>ジョブを保留／解放（実行前のジョブ）</span>
       <span><kbd>/$CJ</kbd> <kbd>/$PJ</kbd></span><span>ジョブを取り消し／出力ごと削除（$HASP250）</span>
       <span><kbd>/$DI</kbd> <kbd>/$DSPL</kbd></span><span>イニシエーター／スプールの使用率</span>
+      <span><kbd>/D R,L</kbd></span><span>応答待ちのメッセージ（WTOR）の一覧（IEE112I）</span>
+      <span><kbd>/R nn,YES</kbd></span><span>番号 nn の問い合わせに応答（IEE600I）。番号違いは IEE704I</span>
+      <span><kbd>/C ジョブ名</kbd></span><span>実行中のジョブを取り消し（IEE301I、ジョブは S222）</span>
     </div>
     <p class="note">知らないコマンドには、MVS は IEE305I、JES2 は $HASP003 を返します。ST 画面の行コマンド <kbd>H</kbd> でもジョブを保留できます。</p>
 
@@ -204,6 +207,10 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
     <h2>演習：要件から JCL を書く</h2>
     <p>要件（仕様）を読んで JCL を書き、自動で採点します。「始める」を押すと、メンバー <code>EXnn</code> が開きます。書いたら下の「採点する」か、コマンド行に <kbd>GRADE</kbd>（この端末独自のコマンド）。採点は、あなたのデータセットに触れない別の環境で毎回まっさらな状態から流します。</p>
     <ul class="samples exlist" id="exlist"></ul>
+    <h2>演習：MVS・JES2 コマンド（オペレーター）</h2>
+    <p>実際にジョブ（シナリオ）が投入されます。SDSF のコマンド行に <kbd>/</kbd> から始まるコマンドで状況を調べ、保留の解放、問い合わせ（WTOR）への応答 <kbd>R nn,YES</kbd>、ジョブの取り消しなどを行います。終わったら <kbd>GRADE</kbd> か「採点する」。出したコマンドの順番と、ジョブの終わり方で採点します。</p>
+    <ul class="samples exlist" id="oplist"></ul>
+    <p class="note">問い合わせを出すジョブは、この端末独自の練習用プログラム <code>PGM=OPRASK</code>（IBM の製品ではありません）を使います。<code>PARM</code> の文で YES/NO を尋ね、YES なら RC 0、NO なら RC 4、取り消されると S222 で終わります。</p>
     <div class="excard" id="excard" hidden></div>
 
     <h2>その他の機能</h2>
@@ -659,7 +666,7 @@ const rc4=n=>z(n,4);
 function defaults(){
   const d=new Date(), members={};
   for(const k of Object.keys(SAMPLES)) members[k]={lines:SAMPLES[k].slice(),created:ymd(d),changed:stamp(d)};
-  return {v:1,nextJob:1234,jobs:[],seen:Object.keys(SAMPLES).concat(['lib:PROCLIB']),catalog:{
+  return {v:1,nextJob:1234,jobs:[],wtors:[],cmdLog:[],seen:Object.keys(SAMPLES).concat(['lib:PROCLIB']),catalog:{
     'USER01.JCL':{dsorg:'PO',recfm:'FB',lrecl:80,members,created:ymd(d),vol:VOL},
     'USER01.PROCLIB':pds(PROCLIB),
     'SYS1.PROCLIB':pds(SYSPROCLIB)
@@ -682,7 +689,10 @@ if(!S.seen)S.seen=['HELLO','ALLOC','SORT','IFTEST','CLEANUP','BADJCL','ABEND'];
  if(!S.catalog['SYS1.PROCLIB'])S.catalog['SYS1.PROCLIB']=pds(SYSPROCLIB);}
 // jobs left mid-run when the page closed are finished as "lost"
 // held jobs stay in the input queue across reloads; a job that was mid-run is marked lost
-for(const j of S.jobs) if(j.queue!=='PRINT'&&!(j.queue==='INPUT'&&j.status&&j.conv)){j.queue='PRINT';j.maxcc='JCL ERROR';delete j.status;}
+// jobs waiting for an operator reply (WTOR) survive a reload; anything else caught mid-run is ended
+for(const j of S.jobs) if(j.queue!=='PRINT'&&!(j.queue==='INPUT'&&j.status&&j.conv)&&!(j.waiting&&j.conv)){j.queue='PRINT';j.maxcc='JCL ERROR';delete j.status;}
+if(!S.wtors)S.wtors=[];
+if(!S.cmdLog)S.cmdLog=[];
 if(!S.zfs)S.zfs={'/u/user01/README':{lines:['THIS IS YOUR Z/OS UNIX HOME DIRECTORY.','FILES WRITTEN WITH DD PATH= APPEAR HERE (ISPF OPTION 3.17).'],mode:'SIRUSR,SIWUSR',changed:stamp(new Date())}};
 
 /* ======================================================================
@@ -1509,6 +1519,16 @@ class Abend{constructor(code,reason,log){this.abend=code;this.reason=reason||'00
 const PROGRAMS={
   IEFBR14(){return{rc:0};},
 
+  // training program of this terminal (not an IBM program): asks the operator a YES/NO question with a WTOR.
+  // The job waits in execution until the reply; YES ends with RC 0, NO with RC 4, CANCEL with S222.
+  OPRASK(c){
+    const j=c.jobRec,k=j.rptr||0,a=(j.asks||[])[k];j.rptr=k+1;
+    if(!a||a.cancel)throw new Abend('S222','00000000');
+    for(const l of a.log)c.log(l);
+    if(a.reply==='YES'){c.log(`OPR002I ${pad(c.job,8)} REPLY YES - PROCESSING CONTINUES`);return{rc:0};}
+    c.log(`OPR002I ${pad(c.job,8)} REPLY NO - REQUEST NOT PERFORMED`);return{rc:4};
+  },
+
   IEBGENER(c){
     const missing=['SYSPRINT','SYSIN','SYSUT1','SYSUT2'].filter(d=>!c.has(d));
     if(missing.length){missing.forEach(d=>c.log(`IEC130I ${pad(d,8)} DD STATEMENT MISSING`));return{rc:12};}
@@ -1850,7 +1870,7 @@ function runJob(job){
   const jes=(dsid,dd,lines)=>({dsid,dd,step:'JES2',lines,cls:jcls,dest:jdest,copies:1});
   job.spool=[jes(2,'JESMSGLG',msglg),jes(3,'JESJCL',jcl),jes(4,'JESYSMSG',sysmsg)].concat(user);
   // the system log gets the job's console messages
-  for(const l of msglg){const m=l.match(/^\d\d\.\d\d\.\d\d (JOB\d+)  ((?:\$HASP\d+|IEF\d{3}I|IEFC452I|IRR010I|CSV0\d\dI|IEA995I)\b.*)$/);if(m)logRec('N ',m[1],m[2]);}
+  for(const l of msglg){const m=l.match(/^\d\d\.\d\d\.\d\d (JOB\d+)  ((?:\$HASP\d+|IEF\d{3}I|IEFC452I|IRR010I|CSV0\d\dI|IEA995I)\b.*)$/);if(m&&!(job.asks&&/^(\$HASP373|IEF403I)/.test(m[2])))logRec('N ',m[1],m[2]);}
   job.queue='PRINT';
   if(outcome.type==='jcl'||outcome.type==='alloc')job.maxcc='JCL ERROR';
   else if(outcome.type==='abend')job.maxcc='ABEND '+outcome.code;
@@ -2083,7 +2103,7 @@ function execute(job,conv,io){
         if(r===null)throw new Abend('S013','00000018',[`IEC141I 013-18,IGG0191B,${job.name},${sn},${x.dd||''},,${VOL},${x.dsn}(${x.mem})`]);
         out=out.concat(r);}
     }return out;};
-    const cx={job:job.name,step:sn,parm:step.parm,
+    const cx={job:job.name,step:sn,parm:step.parm,jobRec:job,
       has:n=>!!handles[n],handle:n=>handles[n],
       read:n=>handles[n]?readH(handles[n]):null,
       write:(n,lines)=>{const h=handles[n];if(!h)return false;
@@ -2736,6 +2756,61 @@ function hasp890(j){
   return[`$HASP890 JOB(${j.name})${' '.repeat(Math.max(1,10-j.name.length))}STATUS=(${st}),CLASS=${j.cls},`,
     `$HASP890${' '.repeat(16)}PRIORITY=${j.queue==='PRINT'?1:(j.prty!=null?j.prty:9)},SYSAFF=(${j.saff||'ANY'}),HOLD=(${hold})`];
 }
+/* WTOR: a job asks the operator and waits until a REPLY (or a CANCEL) */
+function nextWtorId(){
+  const used=new Set(S.wtors.map(w=>+w.id));let n=S.wtorSeq||0;
+  for(let k=0;k<99;k++){n=n%99+1;if(!used.has(n))break;}
+  S.wtorSeq=n;return z(n,2);
+}
+// start a job that runs OPRASK: it goes into execution and issues its first WTOR
+function beginAsks(job,k){
+  const steps=job.conv&&!job.conv.hasErr&&!['SCAN','COPY'].includes(job.typrun)?job.conv.job.steps.filter(s=>s.pgm==='OPRASK'):[];
+  if(!steps.length)return false;
+  if(!job.asks)job.asks=steps.map(s=>({step:s.name,text:(s.parm||'OK TO CONTINUE').trim(),log:[],reply:null}));
+  job.waiting=true;
+  setTimeout(()=>{if(!job.waiting)return;job.queue='EXECUTION';
+    logRec('N ',job.id,`$HASP373 ${pad(job.name,8)} STARTED - INIT 1    - CLASS ${job.cls}        - SYS ${SYSID}`);
+    logRec('N ',job.id,`IEF403I ${job.name} - STARTED - TIME=${hms(new Date())}`);
+    askNext(job);save();},250+k*500);
+  return true;
+}
+function askNext(job){
+  const a=job.asks.find(x=>!x.reply&&!x.cancel);
+  if(!a){job.waiting=false;save();setTimeout(()=>runJob(job),300);return null;}
+  const id=nextWtorId(),text=`*${id} OPR001A ${a.text}. REPLY YES OR NO`;
+  a.id=id;a.log.push(text);S.wtors.push({id,job:job.id,name:job.name,text});
+  logRec('N ',job.id,text);save();
+  return text;
+}
+function cancelWaiting(job){
+  const a=job.asks.find(x=>!x.reply&&!x.cancel);if(a)a.cancel=true;
+  S.wtors=S.wtors.filter(w=>w.job!==job.id);job.waiting=false;save();
+  setTimeout(()=>runJob(job),300);
+}
+const waitingJob=name=>S.jobs.find(j=>j.name===name&&j.waiting&&j.queue==='EXECUTION');
+function replyCommand(cmd){
+  const m=cmd.match(/^(?:R|REPLY)\s+(\d{1,4})(.*)$/);
+  if(!m)return['IEE305I REPLY    COMMAND INVALID'];
+  const id=z(+m[1],2);let rest=m[2];
+  if(rest&&!/^[,\s]/.test(rest))return[`IEE702I REPLY ${id} IGNORED; IMPROPER USE OF DELIMITERS`];
+  let text=rest.replace(/^[,\s]/,'').trim();
+  if(text.startsWith("'")){if(!/^'.*'$/.test(text))return[`IEE702I REPLY ${id} IGNORED; IMPROPER USE OF DELIMITERS`];text=text.slice(1,-1);}
+  if(!S.wtors.length)return[`IEE701I REPLY ${id} IGNORED; NO REPLIES OUTSTANDING`];
+  const w=S.wtors.find(x=>x.id===id);
+  if(!w)return[`IEE704I REPLY ${id} NOT OUTSTANDING`];
+  S.wtors=S.wtors.filter(x=>x!==w);
+  const out=[`IEE600I REPLY TO ${id} IS;${text.slice(0,43)}`];
+  const job=S.jobs.find(j=>j.id===w.job);if(!job)return out;
+  const a=job.asks.find(x=>x.id===id);a.log.push(out[0]);
+  if(['YES','NO'].includes(text)){a.reply=text;askNext(job);}
+  else{const bad=`OPR003I ${pad(job.name,8)} REPLY '${text}' IS NOT VALID - REPLY YES OR NO`;a.log.push(bad);logRec('N ',job.id,bad);out.push(bad,askNext(job));}
+  save();return out;
+}
+function displayReplies(seq,tm){
+  const out=[`IEE112I ${tm} PENDING REQUESTS ${seq}`,`RM=${S.wtors.length}     IM=0     CEM=0     EM=0     RU=0    IR=0    NOAMRF`];
+  if(!S.wtors.length)return out.concat([' NO MESSAGES OUTSTANDING']);
+  return out.concat(['ID:R/K     T SYSNAME  JOB ID   MESSAGE TEXT'],S.wtors.map(w=>`${lpad(w.id,7)} R ${pad(SYSID,8)} ${pad(w.name,8)} ${w.text}`));
+}
 function sysCommand(text){
   const cmd=text.trim().toUpperCase();
   cmdSeq=(cmdSeq+1)%1000;const seq=z(cmdSeq,3);
@@ -2744,8 +2819,16 @@ function sysCommand(text){
   if(cmd.startsWith('$'))out=jes2Command(cmd.slice(1));
   else{
     const [verb,...rest]=cmd.split(/\s+/),arg=rest.join(' ');
-    if(['D','DISPLAY'].includes(verb)){
-      if(arg==='T'){const u=new Date(d.getTime()+d.getTimezoneOffset()*60000);out=[`IEE136I LOCAL: TIME=${tm} DATE=${jd}  UTC: TIME=${hms(u,'.')} DATE=${u.getFullYear()}.${z(jday(u),3)}`];}
+    if(['R','REPLY'].includes(verb))out=replyCommand(cmd);
+    else if(['C','CANCEL'].includes(verb)){
+      const name=arg.split(',')[0];const j=name&&waitingJob(name);
+      if(!name)out=['IEE305I CANCEL   COMMAND INVALID'];
+      else if(!j)out=[`IEE341I ${name} NOT ACTIVE`];
+      else{cancelWaiting(j);out=[`IEE301I ${name} CANCEL COMMAND ACCEPTED`];}
+    }
+    else if(['D','DISPLAY'].includes(verb)){
+      if(/^R(,L|,LIST|,R)?$/.test(arg))out=displayReplies(seq,tm);
+      else if(arg==='T'){const u=new Date(d.getTime()+d.getTimezoneOffset()*60000);out=[`IEE136I LOCAL: TIME=${tm} DATE=${jd}  UTC: TIME=${hms(u,'.')} DATE=${u.getFullYear()}.${z(jday(u),3)}`];}
       else if(arg==='IPLINFO')out=[`IEE254I  ${tm} IPLINFO DISPLAY ${seq}`,` SYSTEM IPLED AT 05.00.00 ON ${z(d.getMonth()+1)}/${z(d.getDate())}/${d.getFullYear()}`,' RELEASE z/OS 03.02.00    LICENSE = z/OS',' USED LOAD00 IN SYS1.IPLPARM ON 0A80',' ARCHLVL = 3   MTLSHARE = N',' VALIDATED BOOT: NO',' IEASYM LIST = 00',' IEASYS LIST = 00 (OP)',' IODF DEVICE: ORIGINAL(0A80) CURRENT(0A80)',' IPL DEVICE: ORIGINAL(0A82) CURRENT(0A82) VOLUME(SYSRES)'];
       else if(/^A(,L)?$|^ACTIVE(,L)?$/.test(arg)){
         const act=S.jobs.filter(j=>j.queue==='EXECUTION');
@@ -2762,7 +2845,10 @@ function sysCommand(text){
     }
     else out=[`IEE305I ${pad(verb,8)} COMMAND INVALID`];
   }
+  out=out.filter(Boolean);
   logRec('NC',USER,cmd,true);logLines(out,USER,true);
+  // kept for the operator exercises: which commands were issued and what came back
+  S.cmdLog.push({cmd,out,t:Date.now()});if(S.cmdLog.length>400)S.cmdLog.splice(0,S.cmdLog.length-400);save();
   return out;
 }
 function jes2Command(c){
@@ -2781,6 +2867,7 @@ function jes2Command(c){
     for(const j of js){
       if(act==='H'&&j.queue==='INPUT'&&!j.status)j.status='HELD';
       if(act==='A'&&j.queue==='INPUT'&&/HELD/.test(j.status||'')){delete j.status;startJob(j,0);}
+      if(act==='C'&&j.waiting&&j.queue==='EXECUTION')cancelWaiting(j);
       if(act==='C'&&j.queue==='INPUT'){delete j.status;delete j.conv;j.queue='PRINT';j.maxcc='CANCELED';
         j.spool=[{dsid:2,dd:'JESMSGLG',step:'JES2',lines:[`${hms(new Date())} ${j.id}  $HASP890 JOB(${j.name}) CANCELLED BY ${USER}`],cls:j.msgclass,dest:'LOCAL',copies:1}];}
       out.push(...hasp890(j));
@@ -2914,6 +3001,119 @@ const EXERCISES=[
  checks:[['IEBGENER を使っている',([r])=>usesPgm(r,'IEBGENER')],['出力が入力の2行と同じ',([r])=>anyOut(r,['FIX ME IF YOU CAN','ALL ERRORS FIXED'])],['CC 0000 で終わる',([r])=>okCC(r)]],
  answer:[JOBCARD('EX10'),'//STEP1    EXEC PGM=IEBGENER','//SYSPRINT DD SYSOUT=*','//SYSIN    DD DUMMY','//SYSUT1   DD DSN=USER01.EX10.INPUT,DISP=SHR','//SYSUT2   DD SYSOUT=*']},
 ];
+/* operator exercises: a scenario of jobs is started for real; you work with / commands in SDSF.
+   Grading looks at the commands you issued since the start (S.cmdLog) and at how the jobs ended. */
+const OPJOB=(n,...st)=>[`//${pad(n,8)} JOB (ACCT),'OPERATIONS',CLASS=A,MSGCLASS=X`,...st];
+const OPHOLD=n=>OPJOB(n).map((l,i)=>i?l:l+',TYPRUN=HOLD').concat(['//STEP1    EXEC PGM=IEFBR14']);
+const OPASK=(n,q,step)=>OPJOB(n,`//ASK      EXEC PGM=OPRASK,PARM='${q}'`,`//${pad(step,8)} EXEC PGM=IEFBR14,COND=(0,NE,ASK)`);
+function opCtx(ex){
+  const run=(S.opRun||{})[ex.id]||{from:S.cmdLog.length,jobs:{}};
+  const cmds=S.cmdLog.slice(run.from);
+  const job=n=>S.jobs.find(j=>j.id===run.jobs[n]);
+  const at=(re,out)=>cmds.findIndex(c=>re.test(c.cmd)&&(!out||c.out.join('\n').match(out)));
+  const said=(re,out)=>at(re,out)>=0;
+  const answer=n=>{const j=job(n);return j&&j.asks?j.asks.map(a=>a.reply).filter(Boolean):[];};
+  const replyAt=n=>{const j=job(n);if(!j||!j.asks)return -1;const ids=j.asks.map(a=>a.id).filter(Boolean);return cmds.findIndex(c=>/^R(EPLY)?\s/.test(c.cmd)&&c.out.some(l=>ids.some(id=>l.startsWith(`IEE600I REPLY TO ${id} `))));};
+  const cc=n=>{const j=job(n);return j?j.maxcc||'':''};
+  return{cmds,job,at,said,answer,replyAt,cc};
+}
+const OPEX=[
+{id:'OP01',kind:'op',level:'入門',title:'システムの時計を確認する',
+ brief:'夜間オペレーターとして勤務を始めました。まずシステムの時計を確認します。',
+ req:['システムの現在の日付と時刻を、ローカル時刻と UTC の両方で表示する'],
+ hint:'MVS の DISPLAY コマンド（短縮形 D）を使います。表示するものは Time の頭文字です。SDSF のコマンド行では先頭に / を付けます。',
+ checks:[['日付と時刻を表示した（IEE136I）',c=>c.said(/^D/,/^IEE136I/m)]],answer:['/D T']},
+{id:'OP02',kind:'op',level:'入門',title:'システムの状態を確認する',
+ brief:'引き継ぎの前に、システムが正常に動いているかを確かめます。',
+ req:['実行中のジョブとシステムのタスクの一覧を表示する','システムがいつ IPL されたか（いつ起動したか）を表示する','DASD ボリュームがオンラインかどうかを表示する'],
+ hint:'どれも DISPLAY コマンドです。後ろに付けるのは、A,L（Active の一覧）、IPLINFO、U,DASD,ONLINE（装置 Unit）。',
+ checks:[['実行中の作業を表示した（IEE114I）',c=>c.said(/^D/,/^IEE114I/m)],['IPL 情報を表示した（IEE254I）',c=>c.said(/^D/,/^IEE254I/m)],['DASD の状態を表示した（IEE457I）',c=>c.said(/^D/,/^IEE457I/m)]],
+ answer:['/D A,L','/D IPLINFO','/D U,DASD,ONLINE']},
+{id:'OP03',kind:'op',level:'入門',title:'JES2 を点検する',
+ brief:'JES2 の資源に問題がないかを点検します。',
+ req:['スプールの使用率を表示する','イニシエーター（ジョブを実行する枠）の状態を表示する'],
+ hint:'JES2 のコマンドは $ で始まります。表示は $D。スプールは SPL、イニシエーターは I。',
+ checks:[['スプール使用率を表示した（$HASP646）',c=>c.said(/^\$/,/^\$HASP646/m)],['イニシエーターを表示した（$HASP892）',c=>c.said(/^\$/,/^\$HASP892/m)]],
+ answer:['/$DSPL','/$DI']},
+{id:'OP04',kind:'op',level:'初級',title:'保留されたジョブを流す',
+ brief:'日中に投入されたジョブ OP04JOB が、TYPRUN=HOLD で入力キューに止まっています。担当者から「流してよい」と連絡がありました。',
+ scenario:[OPHOLD('OP04JOB')],
+ req:['JES2 コマンドで OP04JOB を表示し、保留中（HOLD=(JOB)）であることを確かめる','確かめてから、JES2 コマンドで OP04JOB を解放する（SDSF の行コマンド A ではなくコマンドで）','OP04JOB が CC 0000 で終わる'],
+ hint:"ジョブの表示は $DJ'ジョブ名'、解放は $AJ'ジョブ名'。番号で $DJ1234 のようにも指定できます。",
+ checks:[['OP04JOB を表示して保留中を確認した',c=>c.said(/^\$D/,/JOB\(OP04JOB\)[\s\S]*HOLD=\(JOB\)/)],['JES2 コマンドで解放した',c=>c.said(/^\$A/,/OP04JOB/)],
+   ['確認してから解放した',c=>{const d=c.at(/^\$D/,/JOB\(OP04JOB\)[\s\S]*HOLD=\(JOB\)/),a=c.at(/^\$A/,/OP04JOB/);return d>=0&&a>d;}],['OP04JOB が CC 0000 で終わった',c=>c.cc('OP04JOB')==='CC 0000']],
+ answer:["/$DJ'OP04JOB'","/$AJ'OP04JOB'"]},
+{id:'OP05',kind:'op',level:'初級',title:'問い合わせに YES と応答する',
+ brief:'バックアップジョブ OP05JOB が、開始してよいかをオペレーターに問い合わせて（WTOR）待っています。今夜のバックアップは予定どおり実施します。',
+ scenario:[OPASK('OP05JOB','OK TO START DAILY BACKUP','BACKUP')],
+ req:['応答を待っているメッセージの一覧を表示し、OP05JOB の応答番号（ID）を確かめる','一覧を確かめてから、YES と応答する','OP05JOB が CC 0000 で終わる'],
+ hint:'応答待ちの一覧は DISPLAY R,L（D R,L）。応答は REPLY（短縮形 R）で、R 番号,YES の形です。番号は毎回変わるので、必ず一覧で確かめます。',
+ checks:[['一覧を表示し、OP05JOB の問い合わせが載っていた',c=>c.said(/^D/,/OPR001A OK TO START DAILY BACKUP/)],['YES と応答した',c=>c.answer('OP05JOB')[0]==='YES'],
+   ['一覧を確かめてから応答した',c=>{const d=c.at(/^D/,/OPR001A OK TO START DAILY BACKUP/),r=c.replyAt('OP05JOB');return d>=0&&r>d;}],['OP05JOB が CC 0000 で終わった',c=>c.cc('OP05JOB')==='CC 0000']],
+ answer:['/D R,L','/R nn,YES   （nn は D R,L に出た番号）']},
+{id:'OP06',kind:'op',level:'中級',title:'許可しない応答をする',
+ brief:'OP06JOB が本番ファイルの削除を許可するかを問い合わせています。この削除は予定にないので許可しません。',
+ scenario:[OPASK('OP06JOB','OK TO DELETE PRODUCTION FILES','DELETE')],
+ req:['OP06JOB の問い合わせに NO と応答する','一度も YES と応答しない','OP06JOB は CC 0004 で終わり、削除のステップ（DELETE）は実行されない'],
+ hint:'NO と応答すると、問い合わせのステップは RC 4 で終わり、COND=(0,NE,ASK) の削除ステップは飛ばされます。結果は SDSF で JESYSMSG を開くと確かめられます。',
+ checks:[['NO と応答した',c=>c.answer('OP06JOB').includes('NO')],['YES と応答していない',c=>!c.answer('OP06JOB').includes('YES')],
+   ['CC 0004 で終わり、DELETE ステップは実行されていない',c=>{const j=c.job('OP06JOB');return !!j&&j.maxcc==='CC 0004'&&j.spool.some(s=>s.dd==='JESYSMSG'&&s.lines.some(l=>/IEF202I OP06JOB DELETE/.test(l)));}]],
+ answer:['/D R,L','/R nn,NO']},
+{id:'OP07',kind:'op',level:'中級',title:'2つの問い合わせに答え分ける',
+ brief:'2つのジョブが同時に問い合わせています。月末レポート（OP07A）は実行し、履歴の全削除（OP07B）は断ります。応答番号を取り違えないように注意します。',
+ scenario:[OPASK('OP07A','OK TO RUN MONTH-END REPORT','REPORT'),OPASK('OP07B','OK TO PURGE ALL HISTORY','PURGE')],
+ req:['OP07A（月末レポート）に YES と応答する','OP07B（履歴の全削除）に NO と応答する','OP07A は CC 0000、OP07B は CC 0004 で終わる'],
+ hint:'D R,L の JOB ID とメッセージ本文で、どの番号がどのジョブかを確かめてから応答します。',
+ checks:[['OP07A に YES と応答した',c=>c.answer('OP07A')[0]==='YES'],['OP07B に NO と応答した',c=>c.answer('OP07B')[0]==='NO'],
+   ['OP07A は CC 0000、OP07B は CC 0004',c=>c.cc('OP07A')==='CC 0000'&&c.cc('OP07B')==='CC 0004']],
+ answer:['/D R,L','/R nn,YES   （OP07A の番号）','/R mm,NO    （OP07B の番号）']},
+{id:'OP08',kind:'op',level:'中級',title:'応答できないジョブを取り消す',
+ brief:'OP08JOB がテープ T99999 のマウントを待っていますが、そのテープは見つかりません。応答せずにジョブを止めます。',
+ scenario:[OPASK('OP08JOB','IS TAPE T99999 MOUNTED','COPY')],
+ req:['OP08JOB には応答しない','MVS の CANCEL コマンドで OP08JOB を取り消す','取り消した後に応答待ちの一覧を表示し、OP08JOB の問い合わせが残っていないことを確かめる','OP08JOB は ABEND S222（オペレーターによる取り消し）で終わる'],
+ hint:'取り消しは CANCEL（短縮形 C）の後ろにジョブ名。受け付けられると IEE301I が出ます。',
+ checks:[['OP08JOB に応答していない',c=>!c.answer('OP08JOB').length],['CANCEL コマンドで取り消した（IEE301I）',c=>c.said(/^C(ANCEL)?\s+OP08JOB/,/^IEE301I OP08JOB/m)],
+   ['取り消した後に応答待ちの一覧を確かめた',c=>{const k=c.at(/^C(ANCEL)?\s+OP08JOB/,/^IEE301I/m);return k>=0&&c.cmds.slice(k+1).some(x=>/^D\s+R/.test(x.cmd)&&!x.out.some(l=>/OP08JOB|OPR001A IS TAPE T99999/.test(l)));}],
+   ['OP08JOB が ABEND S222 で終わった',c=>c.cc('OP08JOB')==='ABEND S222']],
+ answer:['/D R,L','/C OP08JOB','/D R,L']},
+{id:'OP09',kind:'op',level:'中級',title:'出力を整理する',
+ brief:'実行が終わった OP09A と OP09B の出力がスプールに残っています。OP09A の出力は不要になったので削除します。',
+ scenario:[OPJOB('OP09A','//STEP1    EXEC PGM=IEFBR14'),OPJOB('OP09B','//STEP1    EXEC PGM=IEFBR14')],
+ req:['削除する前に JES2 コマンドで OP09A を表示し、出力待ち（AWAITING HARDCOPY）であることを確かめる','JES2 コマンドで OP09A の出力を削除する','OP09B の出力は残す'],
+ hint:"表示は $DJ、削除（パージ）は $PJ。削除されると $HASP250 が出ます。",
+ checks:[['削除の前に OP09A を表示して出力待ちを確認した',c=>{const d=c.at(/^\$D/,/JOB\(OP09A\)\s+STATUS=\(AWAITING HARDCOPY\)/),p=c.at(/^\$P/,/\$HASP250 OP09A/);return d>=0&&p>d;}],
+   ['OP09A の出力を削除した（$HASP250）',c=>c.said(/^\$P/,/\$HASP250 OP09A/)&&!c.job('OP09A')],['OP09B の出力が残っている',c=>!!c.job('OP09B')]],
+ answer:["/$DJ'OP09A'","/$PJ'OP09A'"]},
+{id:'OP10',kind:'op',level:'上級',title:'夜間バッチの総合対応',
+ brief:'夜間バッチで3つのジョブが止まっています。OP10A は保留中、OP10B は給与更新の開始許可待ち（実施してよい）、OP10C はテープ待ちですがテープは用意できません。',
+ scenario:[OPHOLD('OP10A'),OPASK('OP10B','OK TO START PAYROLL UPDATE','UPDATE'),OPASK('OP10C','MOUNT TAPE T00042 AND REPLY YES','COPY')],
+ req:['OP10A を JES2 コマンドで解放して実行させる','OP10B の問い合わせに YES と応答する','OP10C には応答せず、取り消す','最後に応答待ちの一覧を表示し、何も残っていないことを確かめる','OP10A・OP10B は CC 0000、OP10C は ABEND S222 で終わる'],
+ hint:'状況の確認には $DJ、D R,L、D A,L を使い分けます。取り消しは C ジョブ名。',
+ checks:[['OP10A を解放した',c=>c.said(/^\$A/,/OP10A/)],['OP10B に YES と応答した',c=>c.answer('OP10B')[0]==='YES'],
+   ['OP10C に応答せず取り消した',c=>!c.answer('OP10C').length&&(c.said(/^C(ANCEL)?\s+OP10C/,/^IEE301I/m)||c.said(/^\$C/,/OP10C/))],
+   ['最後に応答待ちが残っていないことを確かめた',c=>{const l=c.cmds.map(x=>x).reverse().find(x=>/^D\s+R/.test(x.cmd));return !!l&&l.out.some(x=>/NO MESSAGES OUTSTANDING/.test(x));}],
+   ['OP10A・OP10B は CC 0000、OP10C は ABEND S222',c=>c.cc('OP10A')==='CC 0000'&&c.cc('OP10B')==='CC 0000'&&c.cc('OP10C')==='ABEND S222']],
+ answer:["/$DJ'OP10A'","/$AJ'OP10A'",'/D R,L','/R nn,YES   （OP10B の番号）','/C OP10C','/D R,L']},
+];
+function gradeOp(ex){
+  const c=opCtx(ex);
+  const running=Object.keys(((S.opRun||{})[ex.id]||{}).jobs||{}).filter(n=>{const j=c.job(n);return j&&j.queue==='EXECUTION'&&!j.waiting;});
+  const items=ex.checks.map(([label,fn])=>{let ok=false;try{ok=!!fn(c);}catch(e){ok=false;}return{label,ok};});
+  const notes=[];
+  if(!(S.opRun||{})[ex.id]&&ex.scenario)notes.push('シナリオがまだ始まっていません。「始める」を押してください。');
+  if(running.length)notes.push(`${running.join('、')} はまだ実行中です。少し待ってから採点してください。`);
+  if(!c.cmds.length)notes.push('まだコマンドが出されていません。SDSF のコマンド行に / から始めてコマンドを入力します。');
+  return{items,pass:items.every(x=>x.ok),notes};
+}
+function startOp(ex){
+  S.opRun=S.opRun||{};
+  const run={from:S.cmdLog.length,jobs:{}};
+  for(const lines of ex.scenario||[]){const d=splitDecks(lines)[0];const j=submitDeck(d);run.jobs[j.name]=j.id;startJob(j,0);}
+  S.opRun[ex.id]=run;S.exCur=ex.id;save();
+  syncEdit();stack=[stack[0]];msg=null;push({id:'sdsfmenu'});push({id:'st',panel:'ST'});
+  setMsg('',`${ex.id}: read the requirements in the guide and use /commands here. Type GRADE when done.`,false);msg.short='';
+}
+
 // grade JCL lines for one exercise: each requirement check passes or fails
 function gradeEx(ex,lines){
   const rs=ex.runs.map(v=>runSandbox(s=>{if(ex.setup&&!v.label)ex.setup(s);if(v.setup)v.setup(s);},lines));
@@ -2957,6 +3157,7 @@ function startJob(job,k){
       if(ms<2**31-1)setTimeout(()=>{if(job.status&&job.queue==='INPUT'){delete job.status;delete job.releaseAt;startJob(job,0);}},ms);}
     return;
   }
+  if(job.conv&&beginAsks(job,k))return;   // waits for an operator reply first
   setTimeout(()=>{job.queue='EXECUTION';save();},250+k*500);
   setTimeout(()=>{runJob(job);},900+k*700+Math.random()*500);
 }
@@ -3180,6 +3381,7 @@ st(sc,cmd){
       if(/^AWAIT/.test(j.status)){setMsg('NOT RELEASED',`${j.name} waits for system ${j.saff}; this system is ${SYSID}.`,true);return;}
       delete j.status;delete j.releaseAt;startJob(j,0);setMsg('JOB RELEASED','',false);continue;}
     if(v==='C'){ // cancel a job that has not run
+      if(j.waiting&&j.queue==='EXECUTION'){sdsfInfo=sysCommand(`$CJ${+j.id.slice(3)}`);continue;} // SDSF C issues $CJ
       if(j.queue!=='INPUT'){setMsg('NOT CANCELLED',`${j.name} has already run.`,true);return;}
       delete j.status;delete j.conv;j.queue='PRINT';j.maxcc='CANCELED';
       j.spool=[{dsid:2,dd:'JESMSGLG',step:'JES2',lines:[`${hms(new Date())} ${j.id}  $HASP890 JOB(${j.name}) CANCELLED BY ${USER}`],cls:j.msgclass,dest:'LOCAL',copies:1}];save();continue;}
@@ -3333,6 +3535,11 @@ function enter(){
       if(!c)setMsg('ENTER A COMMAND','Type an MVS or JES2 command after /, for example /D T or /$DJ.',false);
       else sdsfInfo=sysCommand(c);
       if(sc.id==='st'||sc.id==='dd')HANDLE[sc.id](sc,'',''); // line commands typed at the same time
+    }
+    else if(isSdsf(sc)&&cmd==='GRADE'){ // simulator command: grade the current operator exercise
+      const ex=S.exCur&&exById(S.exCur);
+      if(!ex||ex.kind!=='op')setMsg('NO EXERCISE','Start an operator exercise (OP01-OP10) from the guide first.',true);
+      else{const r=runGrade(ex),n=r.items.filter(x=>x.ok).length;setMsg(r.pass?`${ex.id} PASSED`:`${ex.id}: ${n}/${r.items.length} OK`,r.pass?'All requirements are met.':'See the guide for the requirements that are not met yet.',!r.pass);}
     }
     else if(isSdsf(sc)&&/^(ULOG|U|LOG|LOG [SO]|ULOG CLOSE|U CLOSE)$/.test(cmd)){
       if(/CLOSE/.test(cmd)){ulog.length=0;setMsg('ULOG CLOSED','',false);}
@@ -3547,28 +3754,32 @@ $('#samples').addEventListener('click',ev=>{
   term.scrollIntoView({block:'nearest',behavior:'smooth'});
 });
 /* exercises in the guide */
-const exById=id=>EXERCISES.find(e=>e.id===id);
+const exById=id=>EXERCISES.concat(OPEX).find(e=>e.id===id);
 function drawExList(){
   const done=S.exDone||{};
-  $('#exlist').innerHTML=EXERCISES.map(e=>`<li><b>${e.id}</b><span>${esc(e.title)}（${e.level}）${done[e.id]?' <span class="ok">✓ 合格</span>':''}</span><button data-ex="${e.id}">始める</button></li>`).join('');
+  const row=e=>`<li><b>${e.id}</b><span>${esc(e.title)}（${e.level}）${done[e.id]?' <span class="ok">✓ 合格</span>':''}</span><button data-ex="${e.id}">始める</button></li>`;
+  $('#oplist').innerHTML=OPEX.map(row).join('');
+  $('#exlist').innerHTML=EXERCISES.map(row).join('');
 }
 function drawExCard(ex,res){
   const c=$('#excard');if(!ex){c.hidden=true;return;}
   c.hidden=false;
   let h=`<h3>${ex.id} ${esc(ex.title)}</h3><p>${esc(ex.brief)}</p><b>要件</b><ol>${ex.req.map(r=>`<li>${r}</li>`).join('')}</ol>`;
+  if(ex.kind==='op')h+=`<p class="note">SDSF の画面で、コマンド行に <kbd>/</kbd> に続けてコマンドを入力します。終わったら <kbd>GRADE</kbd> か「採点する」。${ex.scenario?'「始める」を押すたびに、シナリオのジョブが新しく投入されます。':''}</p>`;
   if(ex.data)h+=`<p class="note">用意されている入力: ${Object.keys(ex.data).map(n=>`<code>${n}</code>`).join('、')}（=3.4 で中身を見られます）</p>`;
   h+=`<details><summary>ヒント</summary><p class="note">${esc(ex.hint)}</p></details>`;
-  h+=`<div class="row"><button class="btn" data-exgrade="${ex.id}">採点する</button><button class="btn" data-exopen="${ex.id}">メンバーを開く</button></div>`;
+  h+=`<div class="row"><button class="btn" data-exgrade="${ex.id}">採点する</button><button class="btn" data-exopen="${ex.id}">${ex.kind==='op'?'始め直す':'メンバーを開く'}</button></div>`;
   if(res){
     h+=`<p><b class="${res.pass?'pass':'fail'}">${res.pass?'合格です。':'まだ要件を満たしていません。'}</b>（${res.items.filter(x=>x.ok).length}/${res.items.length}）</p>`;
     h+=`<ul class="res">${res.items.map(x=>`<li class="${x.ok?'pass':'fail'}">${x.ok?'✓':'✗'} ${esc(x.label)}</li>`).join('')}</ul>`;
     if(!res.pass)h+=res.notes.map(n=>`<p class="note">${esc(n)}</p>`).join('');
   }
-  h+=`<details><summary>解答例を見る</summary><pre>${esc(ex.answer.join('\n'))}</pre><p class="note">書き方はほかにもあります。要件を満たしていれば合格です。</p></details>`;
+  h+=`<details><summary>解答例を見る</summary><pre>${esc(ex.answer.join('\n'))}</pre><p class="note">${ex.kind==='op'?'応答番号（nn）はその時によって変わります。省略形・正式名（DISPLAY、REPLY、CANCEL）のどちらでも構いません。':'書き方はほかにもあります。要件を満たしていれば合格です。'}</p></details>`;
   c.innerHTML=h;
 }
 function startEx(id){
   const ex=exById(id);if(!ex)return;
+  if(ex.kind==='op'){startOp(ex);render();drawExList();drawExCard(ex);term.scrollIntoView({block:'nearest',behavior:'smooth'});return;}
   const lib=S.catalog[USER+'.JCL'];
   // input data sets for the exercise also go into your own catalog, so you can browse them and SUB for real
   for(const[n,l]of Object.entries(ex.data||{}))if(!S.catalog[n])S.catalog[n]=psEntry(l);
@@ -3580,6 +3791,7 @@ function startEx(id){
   term.scrollIntoView({block:'nearest',behavior:'smooth'});
 }
 function runGrade(ex){
+  if(ex.kind==='op'){const res=gradeOp(ex);if(res.pass){S.exDone=S.exDone||{};S.exDone[ex.id]=true;save();}S.exCur=ex.id;drawExList();drawExCard(ex,res);return res;}
   const lines=exLines(ex);
   if(!lines||!lines.some(l=>l.trim())){drawExCard(ex,{items:[{label:'メンバー '+ex.id+' に JCL がない',ok:false}],pass:false,notes:[]});return null;}
   const res=gradeEx(ex,lines);
@@ -3587,7 +3799,7 @@ function runGrade(ex){
   S.exCur=ex.id;drawExList();drawExCard(ex,res);
   return res;
 }
-$('#exlist').addEventListener('click',ev=>{const b=ev.target.closest('[data-ex]');if(b)startEx(b.dataset.ex);});
+for(const id of['#exlist','#oplist'])$(id).addEventListener('click',ev=>{const b=ev.target.closest('[data-ex]');if(b)startEx(b.dataset.ex);});
 $('#excard').addEventListener('click',ev=>{
   const g=ev.target.closest('[data-exgrade]');if(g){runGrade(exById(g.dataset.exgrade));return;}
   const o=ev.target.closest('[data-exopen]');if(o)startEx(o.dataset.exopen);
@@ -3601,6 +3813,8 @@ resetBtn.addEventListener('click',()=>{
 });
 setInterval(()=>{if(!busy)drawOia();},1000);
 for(const j of S.jobs)if(j.queue==='INPUT'&&j.status&&j.releaseAt)startJob(j,0);
+// a job that was waiting for a reply before the reload asks again (or runs, if it got all its replies)
+for(const j of S.jobs)if(j.waiting&&j.conv){j.queue='EXECUTION';if(!S.wtors.some(w=>w.job===j.id))askNext(j);}
 
 function boot(){
   stack=[{id:'menu'}];msg=null;
