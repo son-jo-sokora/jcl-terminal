@@ -1,0 +1,2455 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>JCL 練習端末</title>
+<meta name="description" content="ブラウザだけで動く z/OS 風の JCL 練習用シミュレータ。ISPF で JCL を書き、SUB で投入し、SDSF で JES2 の出力を確認できます。">
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+JP:wght@400;600&display=swap" rel="stylesheet">
+<style>
+/* Layout: a 3270 screen set in a putty-colored terminal bezel; the Japanese guide sits beside it and stacks below on narrow screens */
+:root{
+  --bezel:#cbc6b8; --bezel-deep:#b3ad9d; --ink:#26251f; --ink-soft:#57534a; --card:#dcd7ca; --accent:#1d5a86; --line:#a39d8c;
+  --screen:#040805; --glass:#0b120d;
+  --t-green:#41e27c; --t-dim:#1f6b3d; --t-turq:#4fd8e8; --t-white:#f3f6f1; --t-yellow:#f2e15c; --t-red:#ff5f52; --t-blue:#6f9cff; --t-pink:#ff86da;
+  --mono:'IBM Plex Mono', ui-monospace, Consolas, 'Courier New', monospace;
+  --sans:'IBM Plex Sans JP', 'Hiragino Sans', 'Yu Gothic UI', system-ui, sans-serif;
+  --fs:clamp(9px, calc((100vw - 64px) / 49), 15.5px);
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bezel:#202226; --bezel-deep:#2b2e33; --ink:#e6e3da; --ink-soft:#a7a397; --card:#2a2d32; --accent:#86bde3; --line:#3d4046; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bezel:#202226; --bezel-deep:#2b2e33; --ink:#e6e3da; --ink-soft:#a7a397; --card:#2a2d32; --accent:#86bde3; --line:#3d4046; color-scheme:dark}
+@media (min-width:1180px){:root{--fs:15.5px}}
+
+html,body{margin:0}
+[hidden]{display:none!important}
+body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:14px;}
+.wrap{display:grid;grid-template-columns:minmax(0,auto) minmax(260px,340px);gap:28px;justify-content:center;align-items:start;
+  padding-block:28px 40px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));}
+@media (max-width:1179px){.wrap{grid-template-columns:minmax(0,1fr);justify-items:center}}
+
+/* terminal */
+.unit{min-width:0;max-width:100%;display:flex;flex-direction:column;gap:12px}
+.bez{background:var(--bezel-deep);border-radius:14px;padding:12px;box-shadow:0 1px 0 rgba(255,255,255,.25) inset,0 10px 30px rgba(0,0,0,.18);max-width:100%;overflow-x:auto}
+.glass{background:radial-gradient(ellipse at 50% 40%,var(--glass),var(--screen) 75%);border-radius:8px;padding:10px 12px 6px;width:max-content}
+.term{font-family:var(--mono);font-size:var(--fs);line-height:1.38;width:80ch;height:calc(31 * 1.38em);display:flex;flex-direction:column;color:var(--t-green);white-space:pre;overflow:hidden}
+.ln{height:1.38em;flex:none;overflow:hidden}
+.body{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--t-dim) transparent}
+.body .ln{overflow:visible;width:max-content;min-width:100%}
+.oia{font-family:var(--mono);font-size:var(--fs);line-height:1.38;width:80ch;white-space:pre;color:var(--t-blue);border-top:1px solid var(--t-dim);margin-top:4px;padding-top:2px}
+.cg{color:var(--t-green)}.ct{color:var(--t-turq)}.cw{color:var(--t-white)}.cy{color:var(--t-yellow)}.cr{color:var(--t-red)}.cb{color:var(--t-blue)}.cp{color:var(--t-pink)}
+.f{font:inherit;color:var(--t-green);background:transparent;border:0;padding:0;margin:0;outline:none;text-transform:uppercase;caret-color:var(--t-white);
+  height:1.38em;line-height:1.38;vertical-align:top;background-image:linear-gradient(var(--t-dim),var(--t-dim));background-size:100% 1px;background-repeat:no-repeat;background-position:0 94%;border-radius:0}
+.f:focus{background-image:linear-gradient(var(--t-white),var(--t-white));color:var(--t-white)}
+.f.lc{color:var(--t-yellow)}
+.pick{cursor:pointer}.pick:hover{text-decoration:underline}
+.pf{cursor:pointer}.pf:hover{color:var(--t-white)}
+.edrow{display:flex;width:max-content}
+.gut{margin:0;font:inherit;line-height:1.38;color:var(--t-turq);user-select:none}
+.ed{font:inherit;line-height:1.38;color:var(--t-green);background:transparent;border:0;outline:none;resize:none;overflow:hidden;white-space:pre;width:73ch;padding:0;margin:0;text-transform:uppercase;caret-color:var(--t-white);display:block}
+.ed.nocaps{text-transform:none}
+.ed::selection,.f::selection{background:var(--t-dim);color:var(--t-white)}
+
+.keys{display:flex;flex-wrap:wrap;gap:8px}
+.keys button,.btn{font-family:var(--mono);font-size:13px;background:var(--card);color:var(--ink);border:1px solid var(--line);border-bottom-width:3px;border-radius:6px;padding:7px 12px;cursor:pointer}
+.keys button:active,.btn:active{transform:translateY(1px);border-bottom-width:2px}
+.keys button:focus-visible,.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.keys .k-main{font-weight:600}
+
+/* guide */
+.guide{min-width:0;max-width:62ch;font-size:14px;line-height:1.7}
+.guide h1{font-size:22px;line-height:1.3;margin:0 0 6px;text-wrap:balance;letter-spacing:.02em}
+.guide h2{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);margin:22px 0 8px;font-weight:600;border-top:1px solid var(--line);padding-top:14px}
+.guide p{margin:0 0 8px}
+.guide ol{margin:0;padding-left:1.3em;display:grid;gap:6px}
+.guide kbd,.guide code{font-family:var(--mono);font-size:12.5px;background:var(--card);border:1px solid var(--line);border-radius:4px;padding:0 5px;white-space:nowrap}
+.lead{color:var(--ink-soft)}
+.samples{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.samples li{display:grid;grid-template-columns:74px 1fr auto;gap:8px;align-items:baseline}
+.samples b{font-family:var(--mono);font-weight:600;font-size:13px}
+.samples span{color:var(--ink-soft);font-size:13px;line-height:1.5}
+.samples button{font-size:12px;background:none;border:1px solid var(--line);color:var(--accent);border-radius:4px;padding:1px 8px;cursor:pointer;font-family:var(--sans)}
+.samples button:hover{border-color:var(--accent)}
+.keytbl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
+.note{font-size:12.5px;color:var(--ink-soft)}
+#reset{margin-top:6px;font-family:var(--sans);font-size:13px}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="unit">
+    <div class="bez"><div class="glass">
+      <div class="term" id="term" aria-label="3270 terminal"></div>
+      <div class="oia" id="oia"></div>
+    </div></div>
+    <div class="keys" aria-label="Terminal keys">
+      <button class="k-main" data-key="Enter">Enter</button>
+      <button data-key="F3">F3 戻る</button>
+      <button data-key="F7">F7 ▲</button>
+      <button data-key="F8">F8 ▼</button>
+      <button data-key="F12">F12 取消</button>
+    </div>
+  </div>
+
+  <aside class="guide">
+    <h1>JCL 練習端末</h1>
+    <p class="lead">ISPF で JCL を書き、<code>SUB</code> で投入すると JES2 のメッセージが返ってきます。ジョブの出力は SDSF で確認できます。</p>
+
+    <h2>はじめの3ステップ</h2>
+    <ol>
+      <li>左は HELLO メンバーの編集画面です。<b>Command ===&gt;</b> に <kbd>SUB</kbd> と入力して Enter。</li>
+      <li><code>IKJ56250I</code> と <code>$HASP165</code> が表示されたら Enter で戻ります。</li>
+      <li>コマンド行に <kbd>=SD</kbd> → <kbd>ST</kbd>。ジョブの左に <kbd>?</kbd> で出力一覧、<kbd>S</kbd> で中身を表示します。</li>
+    </ol>
+
+    <h2>キー操作</h2>
+    <div class="keytbl">
+      <kbd>Enter</kbd><span>コマンド実行（編集エリアでは改行）</span>
+      <kbd>Ctrl+Enter</kbd><span>編集エリアからでもコマンド実行</span>
+      <kbd>F3</kbd><span>戻る（編集中は保存して戻る）。<kbd>Esc</kbd> でも可</span>
+      <kbd>F7 / F8</kbd><span>上下スクロール。<kbd>PgUp</kbd> <kbd>PgDn</kbd> でも可</span>
+      <kbd>=2</kbd><span>編集、<kbd>=3.4</kbd> データセット一覧、<kbd>=SD</kbd> SDSF</span>
+    </div>
+
+    <h2>サンプル JCL（USER01.JCL）</h2>
+    <ul class="samples" id="samples">
+      <li><b>HELLO</b><span>IEBGENER でデータを SYSOUT に出力</span><button data-open="HELLO">開く</button></li>
+      <li><b>ALLOC</b><span>データセットを作成して書き込み。2回目は重複エラー</span><button data-open="ALLOC">開く</button></li>
+      <li><b>SORT</b><span>DFSORT で点数順に並べ替え</span><button data-open="SORT">開く</button></li>
+      <li><b>IFTEST</b><span>IF/THEN/ELSE で実行するステップを切り替え</span><button data-open="IFTEST">開く</button></li>
+      <li><b>CLEANUP</b><span>IDCAMS でカタログ一覧と削除</span><button data-open="CLEANUP">開く</button></li>
+      <li><b>BADJCL</b><span>JCL エラーを体験（JESYSMSG を確認）</span><button data-open="BADJCL">開く</button></li>
+      <li><b>ABEND</b><span>S806 ABEND と COND=EVEN</span><button data-open="ABEND">開く</button></li>
+      <li><b>SYNTAX</b><span>よくある書き間違いを12種類。まず JCK で確認</span><button data-open="SYNTAX">開く</button></li>
+      <li><b>OPENERR</b><span>JCL は正しいのに OPEN で S013-20</span><button data-open="OPENERR">開く</button></li>
+      <li><b>PROCJOB</b><span>カタログ式プロシージャ、記号パラメーター、DD のオーバーライド</span><button data-open="PROCJOB">開く</button></li>
+      <li><b>INSTREAM</b><span>インストリーム・プロシージャと EXEC の COND</span><button data-open="INSTREAM">開く</button></li>
+      <li><b>PROCERR</b><span>プロシージャ関連の間違い</span><button data-open="PROCERR">開く</button></li>
+      <li><b>GDGDEF</b><span>IDCAMS で GDG ベースを定義（最初に1回）</span><button data-open="GDGDEF">開く</button></li>
+      <li><b>GDGRUN</b><span>(+1) で世代を作成。4回目で最古の世代が消える</span><button data-open="GDGRUN">開く</button></li>
+      <li><b>JES2CTL</b><span>/*PRIORITY /*JOBPARM /*ROUTE /*MESSAGE</span><button data-open="JES2CTL">開く</button></li>
+      <li><b>OUTSTMT</b><span>OUTPUT 文でクラス・宛先・部数を指定</span><button data-open="OUTSTMT">開く</button></li>
+      <li><b>DDPARMS</b><span>LIKE / VOL / RETPD / DDNAME / PATH（S213 も発生）</span><button data-open="DDPARMS">開く</button></li>
+      <li><b>JOBRC</b><span>JOBRC=LASTRC でジョブの RC を変える</span><button data-open="JOBRC">開く</button></li>
+      <li><b>JOBCOND</b><span>JOB 文の COND で残りのステップを打ち切る</span><button data-open="JOBCOND">開く</button></li>
+      <li><b>RESTART</b><span>RESTART= で途中のステップから開始</span><button data-open="RESTART">開く</button></li>
+      <li><b>REGION</b><span>REGION 不足の S80A と IF ABENDCC</span><button data-open="REGION">開く</button></li>
+      <li><b>HOLDJOB</b><span>TYPRUN=HOLD。SDSF の A で解放、C で取り消し</span><button data-open="HOLDJOB">開く</button></li>
+      <li><b>SCHED</b><span>SCHEDULE HOLDUNTL で1分後に実行</span><button data-open="SCHED">開く</button></li>
+      <li><b>EXPORT</b><span>EXPORT と SYMBOLS=EXECSYS</span><button data-open="EXPORT">開く</button></li>
+    </ul>
+
+    <h2>その他の機能</h2>
+    <div class="keytbl">
+      <b>GDG</b><span>IDCAMS の <code>DEFINE GENERATIONDATAGROUP</code> / <code>DELETE ... GDG FORCE</code> / <code>LISTCAT</code>。<code>DSN=名前(+1)</code> で新しい世代、<code>(0)</code> <code>(-1)</code> で既存の世代、名前だけなら全世代を新しい順に連結します。相対番号はジョブの中で固定されます</span>
+      <b>JES2 文</b><span><code>/*JOBPARM</code>（SYSAFF・LINES・COPIES など）、<code>/*PRIORITY</code>、<code>/*ROUTE PRINT</code>、<code>/*MESSAGE</code>、<code>/*NOTIFY</code>、<code>/*XEQ</code>。不正な指定は無視され、JESMSGLG に <code>$HASP119</code> が出ます。SYSAFF がほかのシステムだと、ジョブは入力キューで待ち続けます</span>
+      <b>OUTPUT 文</b><span>CLASS・DEST・COPIES・DEFAULT=YES・JESDS。DD 側は <code>OUTPUT=*.名前</code> と <code>SYSOUT=(,)</code> で参照します</span>
+      <b>DD</b><span>VOL=SER / VOL=REF（ボリューム違いは S213-04）、LIKE / REFDD / DCB=参照、DDNAME=、RETPD / EXPDT（期限前の削除は不可、IDCAMS は PURGE で可）、PATH 一式（<kbd>=3.17</kbd> でファイル一覧）、OUTLIM（超過で S722）、COPIES、DEST、HOLD、SPIN、FREE</span>
+      <b>JOB / EXEC</b><span>JOBRC、RESTART、JOB の COND、TYPRUN=HOLD / JCLHOLD / SCAN / COPY、REGION（不足すると S80A。JOB 側が優先）、JOBLIB / STEPLIB、IF の ABENDCC、EXPORT、SCHEDULE HOLDUNTL</span>
+      <b>システム記号</b><span>&amp;SYSUID &amp;SYSNAME &amp;SYSCLONE &amp;LYYMMDD &amp;LHHMMSS &amp;LYR4 など</span>
+      <b>編集</b><span>小文字を含むメンバーは CAPS OFF で開きます。<kbd>CAPS ON</kbd> / <kbd>CAPS OFF</kbd> で切り替えられます</span>
+    </div>
+    <p class="note">受け付けて値の書式だけを確認し、動作には反映しないもの: TIME、SPIN、FREE、CNTL / ENDCNTL、XMIT、SCHEDULE の AFTER / BEFORE、JOBGROUP。JES3 の制御文（//*MAIN など）は JES2 の動作どおりコメントとして扱います。</p>
+
+    <h2>プロシージャと INCLUDE</h2>
+    <p><code>JCLLIB ORDER=</code> で指定したライブラリを順に探し、見つからなければ SYS1.PROCLIB を探します。<code>USER01.PROCLIB</code> には COPY と DELDS のプロシージャと、INCLUDE グループ STDPRT が入っています。<kbd>=3.4</kbd> の一覧で <kbd>E</kbd> を付けると編集でき、コマンド行に <kbd>SYS1</kbd> と入力すると SYS1.PROCLIB を表示します。</p>
+    <div class="keytbl">
+      <b>記号</b><span>EXEC の値 → PROC 文の既定値 → SET の値の順に優先されます。DD * に <code>SYMBOLS=JCLONLY</code> を付けるとデータ中の記号も置き換えます</span>
+      <b>EXEC</b><span><code>PARM.GEN=</code> のように手順ステップ名を付けるとそのステップだけに、付けなければ COND などは全ステップに適用されます。PARM は最初のステップに適用されます</span>
+      <b>DD</b><span><code>//GEN.SYSUT1 DD ...</code> で上書きし、該当がなければ追加します。ステップ名のない DD は最後のステップに付きます。<code>DSN=</code> のように値を空にすると、その指定を取り消せます</span>
+      <b>JESJCL</b><span>展開後の JCL を表示します。<code>XX</code> はカタログ式、<code>++</code> はインストリーム、<code>X/</code> <code>+/</code> は上書きされた行です</span>
+    </div>
+
+    <h2>構文チェック</h2>
+    <p>編集画面で <kbd>JCK</kbd> と入力すると、投入せずに JCL をチェックします。問題のある行を一覧で表示し、エディタの行番号が <code>==ERR&gt;</code>（エラー）や <code>==WRN&gt;</code>（警告）に変わります。<kbd>RESET</kbd> で印を消せます。</p>
+    <p>JOB 文に <code>TYPRUN=SCAN</code> を付けて SUB すると、実行せずに JES2 の変換チェックだけを行います。</p>
+    <p>エラーは発生するタイミングで3段階に分かれます。</p>
+    <div class="keytbl">
+      <b>変換時</b><span>綴り・書式の誤り。ジョブは実行されず JCL ERROR。結果は JESYSMSG の <code>STMT NO. MESSAGE</code> に出ます。例: 未定義の命令・キーワード、括弧やアポストロフィの不一致、継続行の誤り、名前やデータセット名の長さ・文字、DISP・SPACE・DCB・COND・CLASS などの値、同時に指定できないキーワードの組み合わせ、重複したキーワード、使われない SET シンボル（警告）</span>
+      <b>割り当て時</b><span>実行直前のエラー。存在しないデータセット（IEF212I）、データセットの重複（IGD17101I）、誤った UNIT（IEF210I）。JCL ERROR になります</span>
+      <b>実行時</b><span>プログラム実行中のエラー。存在しないプログラム（S806）、BLKSIZE が LRECL の倍数でない（S013-20）、DCB の不一致（IEB311I）、DFSORT や IDCAMS の制御文の誤り</span>
+    </div>
+
+    <h2>対応範囲</h2>
+    <p>プログラム: IEFBR14、IEBGENER、SORT（ICEMAN）、IDCAMS（LISTCAT・DELETE・PRINT・REPRO）。それ以外の PGM は S806 で ABEND します。</p>
+    <p>JCL: JOB / EXEC / DD / SET / IF・ELSE・ENDIF / PROC・PEND / JCLLIB / INCLUDE、COND、DISP、DD *、DUMMY、SYSOUT、&amp;SYSUID などのシンボル、後方参照（DSN=*.STEP.DD）。</p>
+    <p class="note">実機ではなく、ブラウザ上で動くシミュレーションです。メッセージは実際の z/OS を参考にした近似で、番号や文面が実機と異なるものがあります。JCK で始まるメッセージはこの端末独自のヒントです。作ったデータセットとジョブはこのブラウザにだけ保存されます。</p>
+    <button class="btn" id="reset">初期状態に戻す</button>
+  </aside>
+</div>
+
+<script>
+(function(){
+'use strict';
+const USER='USER01', SYSID='S0W1', NODE='N1', VOL='USER00', LSKEY='jcl-terminal-v1';
+const ROWS_NOTE='';
+
+/* ---------- sample members ---------- */
+const SAMPLES={
+HELLO:[
+"//HELLO    JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,",
+"//             MSGLEVEL=(1,1),NOTIFY=&SYSUID",
+"//*----------------------------------------------------------------",
+"//* COPY IN-STREAM DATA TO SYSOUT WITH IEBGENER",
+"//*----------------------------------------------------------------",
+"//STEP1    EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT2   DD SYSOUT=*",
+"//SYSUT1   DD *",
+"HELLO, Z/OS!",
+"THIS DATA WAS COPIED BY IEBGENER.",
+"/*"],
+ALLOC:[
+"//ALLOC    JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//*----------------------------------------------------------------",
+"//* STEP1: CREATE A NEW SEQUENTIAL DATA SET",
+"//* STEP2: WRITE RECORDS INTO IT",
+"//* SUBMIT TWICE TO SEE THE DUPLICATE DATA SET ERROR.",
+"//*----------------------------------------------------------------",
+"//STEP1    EXEC PGM=IEFBR14",
+"//NEWDS    DD DSN=&SYSUID..SAMPLE.DATA,DISP=(NEW,CATLG,DELETE),",
+"//            SPACE=(TRK,(1,1)),UNIT=SYSDA,",
+"//            DCB=(RECFM=FB,LRECL=80,BLKSIZE=0)",
+"//STEP2    EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT2   DD DSN=&SYSUID..SAMPLE.DATA,DISP=OLD",
+"//SYSUT1   DD *",
+"0001 TANAKA    TOKYO",
+"0002 SUZUKI    OSAKA",
+"0003 SATO      NAGOYA",
+"/*"],
+SORT:[
+"//SORTJOB  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* SORT RECORDS BY SCORE (COLUMNS 21-24) IN DESCENDING ORDER",
+"//STEP1    EXEC PGM=SORT",
+"//SYSOUT   DD SYSOUT=*",
+"//SORTOUT  DD SYSOUT=*",
+"//SORTIN   DD *",
+"TANAKA    TOKYO     0300",
+"SUZUKI    OSAKA     0150",
+"SATO      NAGOYA    0420",
+"ITO       FUKUOKA   0275",
+"WATANABE  SAPPORO   0198",
+"/*",
+"//SYSIN    DD *",
+"  SORT FIELDS=(21,4,CH,D)",
+"/*"],
+IFTEST:[
+"//IFTEST   JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* STEP2 RUNS ONLY IF USER01.SAMPLE.DATA EXISTS (LISTCAT RC=0).",
+"//* OTHERWISE STEP3 RUNS. TRY IT BEFORE AND AFTER RUNNING ALLOC.",
+"//STEP1    EXEC PGM=IDCAMS",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD *",
+"  LISTCAT ENTRIES(USER01.SAMPLE.DATA)",
+"/*",
+"//CHKRC    IF (STEP1.RC = 0) THEN",
+"//STEP2    EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT1   DD DSN=USER01.SAMPLE.DATA,DISP=SHR",
+"//SYSUT2   DD SYSOUT=*",
+"//         ELSE",
+"//STEP3    EXEC PGM=IEFBR14",
+"//         ENDIF"],
+CLEANUP:[
+"//CLEANUP  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* LIST MY DATA SETS, THEN DELETE THE ONE CREATED BY ALLOC",
+"//STEP1    EXEC PGM=IDCAMS",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD *",
+"  LISTCAT LEVEL(USER01)",
+"  DELETE USER01.SAMPLE.DATA NONVSAM",
+"/*"],
+BADJCL:[
+"//BADJCL   JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* THIS JOB HAS JCL ERRORS. SUBMIT IT, THEN CHECK JESYSMSG IN SDSF.",
+"//STEP1    EXCE PGM=IEFBR14",
+"//STEP2    EXEC PGM=IEFBR14",
+"//DD1      DD DSN=USER01.TEST.DATA,DISP=(NEW,CATLG),SPCE=(TRK,1)"],
+ABEND:[
+"//ABEND    JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* MYPROG DOES NOT EXIST, SO STEP1 ABENDS WITH S806.",
+"//* STEP2 IS SKIPPED. STEP3 RUNS BECAUSE OF COND=EVEN.",
+"//STEP1    EXEC PGM=MYPROG",
+"//STEP2    EXEC PGM=IEFBR14",
+"//STEP3    EXEC PGM=IEFBR14,COND=EVEN"],
+SYNTAX:[
+"//SYNTAX   JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* EVERY STATEMENT BELOW HAS A TYPICAL MISTAKE.",
+"//* TYPE JCK ON THE COMMAND LINE TO CHECK IT WITHOUT SUBMITTING.",
+"//         SET HLQ=USER01",
+"//         SET OLDHLQ=TEST",
+"//STEP1    EXEC PGM=IEFBR14,COND=(4,LX)",
+"//DD1      DD DSN=&HLQ..VERYLONGNAME.DATA,DISP=(NEW,CATLG)",
+"//DD2      DD DSN=USER01..DATA,DISP=SHR",
+"//DD3      DD DSN=USER01.NEW.DATA,DISP=(NEWW,CATLG)",
+"//DD4      DD DSN=USER01.NEW.DATA,DISP=NEW,SPACE=(TRK,(1,1)",
+"//DD5      DD SYSOUT=*,DISP=SHR",
+"//DD6      DD DSN=USER01.X,DISP=SHR,DISP=OLD",
+"//DD7      DD DSN=USER01.Y,DISP=SHR,",
+"//STEP2    EXEC PGM=IEBGENER,PARM='NOQUOTE",
+"//STEPNUMBER3 EXEC PGM=IEFBR14",
+"//DD8      DD DUMY"],
+OPENERR:[
+"//OPENERR  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* THE JCL IS VALID, BUT THE OUTPUT DATA SET CANNOT BE OPENED:",
+"//* FOR RECFM=FB, BLKSIZE MUST BE A MULTIPLE OF LRECL (S013-20).",
+"//STEP1    EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT1   DD *",
+"SOME DATA",
+"/*",
+"//SYSUT2   DD DSN=&&TEMP,DISP=(NEW,PASS),UNIT=SYSDA,",
+"//            SPACE=(TRK,1),DCB=(RECFM=FB,LRECL=80,BLKSIZE=1000)"],
+PROCJOB:[
+"//PROCJOB  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* CALL CATALOGED PROCEDURES FROM USER01.PROCLIB.",
+"//* SEE JESJCL IN SDSF FOR THE EXPANDED JCL (XX AND X/ LINES).",
+"//         JCLLIB ORDER=USER01.PROCLIB",
+"//* 1) DELETE THE DATA SET IF IT EXISTS (SYMBOLIC PARAMETER DSN)",
+"//CLEAN    EXEC DELDS,DSN=&SYSUID..PROC.DATA",
+"//* 2) COPY IN-STREAM DATA INTO A NEW DATA SET (DD OVERRIDES)",
+"//MAKE     EXEC COPY",
+"//GEN.SYSUT1 DD *",
+"WRITTEN THROUGH THE COPY PROCEDURE",
+"WITH OVERRIDES ON SYSUT1 AND SYSUT2",
+"/*",
+"//GEN.SYSUT2 DD DSN=&SYSUID..PROC.DATA,DISP=(NEW,CATLG),",
+"//            SPACE=(TRK,(1,1))",
+"//* 3) PRINT IT: IN= REPLACES THE DEFAULT INPUT",
+"//SHOW     EXEC COPY,IN=&SYSUID..PROC.DATA",
+"//* 4) A SYSTEM PROCEDURE FROM SYS1.PROCLIB (NO JCLLIB NEEDED)",
+"//LIST     EXEC IDCLIST"],
+INSTREAM:[
+"//INSTREAM JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* AN IN-STREAM PROCEDURE IS DEFINED BETWEEN PROC AND PEND,",
+"//* THEN CALLED WITH DIFFERENT SYMBOLIC PARAMETERS.",
+"//SAY      PROC MSG='DEFAULT MESSAGE'",
+"//PRT      EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT2   DD SYSOUT=*",
+"//SYSUT1   DD *,SYMBOLS=JCLONLY",
+"MESSAGE: &MSG",
+"/*",
+"//         PEND",
+"//RUN1     EXEC SAY",
+"//RUN2     EXEC SAY,MSG='HELLO FROM RUN2'",
+"//* COND APPLIES TO EVERY STEP OF THE PROCEDURE: RUN3 IS SKIPPED",
+"//RUN3     EXEC SAY,MSG='NEVER PRINTED',COND=(0,EQ)",
+"//         IF (RUN2.PRT.RC = 0) THEN",
+"//RUN4     EXEC SAY,MSG='RUN2.PRT ENDED WITH RC 0'",
+"//         ENDIF"],
+PROCERR:[
+"//PROCERR  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* PROCEDURE MISTAKES. TRY JCK FIRST, THEN SUB.",
+"//         JCLLIB ORDER=USER01.PROCLIB",
+"//STEP1    EXEC NOSUCH",
+"//STEP2    EXEC COPY,INN=USER01.JCL(HELLO)",
+"//XXX.SYSUT1 DD DUMMY",
+"//STEP3    EXEC DELDS",
+"//         INCLUDE MEMBER=NOMEMBER"],
+GDGDEF:[
+"//GDGDEF   JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* DEFINE A GDG BASE THAT KEEPS THE 3 NEWEST GENERATIONS.",
+"//* RUN IT ONCE. A SECOND RUN ENDS WITH IDC3013I (DUPLICATE NAME).",
+"//STEP1    EXEC PGM=IDCAMS",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD *",
+"  DEFINE GENERATIONDATAGROUP -",
+"         (NAME(USER01.DAILY.REPORT) -",
+"          LIMIT(3) -",
+"          SCRATCH NOEMPTY)",
+"  LISTCAT ENTRIES(USER01.DAILY.REPORT) ALL",
+"/*"],
+GDGRUN:[
+"//GDGRUN   JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* CREATE GENERATION (+1), READ IT BACK, THEN READ ALL GENERATIONS.",
+"//* RUN GDGDEF FIRST. RUN THIS 4 TIMES TO SEE THE OLDEST ROLL OFF.",
+"//NEWGEN   EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT1   DD *,SYMBOLS=EXECSYS",
+"REPORT CREATED AT &LHHMMSS ON &LYYMMDD BY &SYSUID",
+"/*",
+"//SYSUT2   DD DSN=USER01.DAILY.REPORT(+1),DISP=(NEW,CATLG,DELETE),",
+"//            SPACE=(TRK,(1,1)),DCB=(RECFM=FB,LRECL=80)",
+"//* (+1) STILL MEANS THE GENERATION CREATED ABOVE, UNTIL THE JOB ENDS",
+"//READNEW  EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT1   DD DSN=USER01.DAILY.REPORT(+1),DISP=SHR",
+"//SYSUT2   DD SYSOUT=*",
+"//* THE BASE NAME ALONE READS EVERY GENERATION, NEWEST FIRST",
+"//READALL  EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT1   DD DSN=USER01.DAILY.REPORT,DISP=SHR",
+"//SYSUT2   DD SYSOUT=*"],
+JES2CTL:[
+"/*PRIORITY 12",
+"//JES2CTL  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"/*JOBPARM SYSAFF=*,LINES=1,ROOM=B12,BADKEY=1",
+"/*ROUTE PRINT RMT5",
+"/*MESSAGE JES2CTL HAS BEEN SUBMITTED",
+"/*NOTAVERB THIS IS NOT A JES2 CONTROL STATEMENT",
+"//* JES2 CONTROL STATEMENTS START WITH /* IN COLUMNS 1-2.",
+"//* /*PRIORITY GOES IN FRONT OF THE JOB STATEMENT.",
+"//* SEE JESMSGLG FOR /*MESSAGE AND $HASP119, AND DEST RMT5 IN ?.",
+"//STEP1    EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT1   DD *",
+"THIS OUTPUT IS ROUTED TO REMOTE 5",
+"/*",
+"//SYSUT2   DD SYSOUT=*"],
+OUTSTMT:[
+"//OUTSTMT  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* OUTPUT STATEMENTS SET CLASS, DESTINATION AND COPIES OF SYSOUT.",
+"//* CHECK THE C, DEST AND CC COLUMNS IN THE SDSF ? LIST.",
+"//REPORT   OUTPUT CLASS=A,DEST=PRT01,COPIES=2",
+"//DFLT     OUTPUT DEFAULT=YES,CLASS=H,DEST=LOCAL",
+"//JESOUT   OUTPUT JESDS=ALL,DEST=ARCHIVE",
+"//STEP1    EXEC PGM=IEBGENER",
+"//* SYSOUT=(,) TAKES ITS CLASS FROM THE OUTPUT STATEMENT",
+"//SYSPRINT DD SYSOUT=(,)",
+"//SYSIN    DD DUMMY",
+"//SYSUT1   DD *",
+"MONTHLY REPORT - TWO COPIES ON PRINTER PRT01",
+"/*",
+"//SYSUT2   DD SYSOUT=(,),OUTPUT=*.REPORT"],
+DDPARMS:[
+"//DDPARMS  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* LIKE=, VOL=SER=, RETPD=, DDNAME= AND PATH= IN ONE JOB. RUN ONCE.",
+"//* TO START OVER: IDCAMS DELETE USER01.DDPARMS.LIB PURGE",
+"//* MAKE: SYSUT1 IS DEFINED BY THE LATER DD INPUT (DDNAME=). THE NEW",
+"//*  LIBRARY COPIES USER01.JCL (LIKE=), IS ON WORK01, KEPT 30 DAYS.",
+"//MAKE     EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT1   DD DDNAME=INPUT",
+"//SYSUT2   DD DSN=USER01.DDPARMS.LIB(NOTE),DISP=(NEW,CATLG),",
+"//            LIKE=USER01.JCL,VOL=SER=WORK01,RETPD=30",
+"//INPUT    DD *",
+"COPIED THROUGH DDNAME=INPUT",
+"/*",
+"//* UNIX: COPY THE MEMBER TO A Z/OS UNIX FILE (ISPF OPTION 3.17)",
+"//UNIX     EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT1   DD DSN=USER01.DDPARMS.LIB(NOTE),DISP=SHR",
+"//SYSUT2   DD PATH='/u/user01/note.txt',",
+"//            PATHOPTS=(OWRONLY,OCREAT,OTRUNC),",
+"//            PATHMODE=(SIRUSR,SIWUSR),PATHDISP=KEEP,FILEDATA=TEXT",
+"//* DROP: DISP=DELETE IS REFUSED WHILE RETPD HAS NOT ENDED (IEF283I)",
+"//DROP     EXEC PGM=IEFBR14",
+"//DD1      DD DSN=USER01.DDPARMS.LIB,DISP=(OLD,DELETE)",
+"//* WRONG: THE LIBRARY IS ON WORK01, NOT USER00, SO OPEN FAILS (S213)",
+"//WRONG    EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT1   DD DSN=USER01.DDPARMS.LIB(NOTE),DISP=SHR,VOL=SER=USER00",
+"//SYSUT2   DD SYSOUT=*"],
+JOBRC:[
+"//JOBRC    JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID,",
+"//             JOBRC=LASTRC",
+"//* JOBRC=LASTRC: THE JOB REPORTS THE RC OF ITS LAST STEP (0),",
+"//* NOT THE HIGHEST RC (4). TRY JOBRC=MAXRC OR JOBRC=(STEP,LIST).",
+"//LIST     EXEC PGM=IDCAMS",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD *",
+"  LISTCAT ENTRIES(USER01.NO.SUCH.DATA)",
+"/*",
+"//OK       EXEC PGM=IEFBR14"],
+JOBCOND:[
+"//JOBCOND  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID,",
+"//             COND=(8,LE)",
+"//* JOB COND=(8,LE): ONCE A STEP ENDS WITH RC 8 OR MORE,",
+"//* THE REST OF THE JOB IS SKIPPED, EVEN STEPS WITH COND=EVEN.",
+"//FAIL     EXEC PGM=IDCAMS",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD *",
+"  DELETE USER01.NO.SUCH.DATA",
+"/*",
+"//NEXT     EXEC PGM=IEFBR14,COND=EVEN"],
+RESTART:[
+"//RESTART  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID,",
+"//             RESTART=STEP3",
+"//* RESTART=STEP3: STEP1 AND STEP2 ARE SKIPPED; THE JOB STARTS AT STEP3.",
+"//STEP1    EXEC PGM=NOSUCHPG",
+"//STEP2    EXEC PGM=NOSUCHPG",
+"//STEP3    EXEC PGM=IEFBR14"],
+REGION:[
+"//REGION   JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* REGION=8K IS TOO SMALL FOR DFSORT, SO STEP SMALL ABENDS S80A.",
+"//* IF ... ABENDCC = S80A THEN RUNS A STEP THAT REPORTS IT.",
+"//SMALL    EXEC PGM=SORT,REGION=8K",
+"//SYSOUT   DD SYSOUT=*",
+"//SORTIN   DD DUMMY",
+"//SORTOUT  DD SYSOUT=*",
+"//SYSIN    DD *",
+"  SORT FIELDS=COPY",
+"/*",
+"//CHECK    IF (SMALL.ABENDCC = S80A) THEN",
+"//REPORT   EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT1   DD *",
+"STEP SMALL ENDED WITH S80A - INCREASE ITS REGION",
+"/*",
+"//SYSUT2   DD SYSOUT=*",
+"//         ENDIF"],
+HOLDJOB:[
+"/*PRIORITY 14",
+"//HOLDJOB  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID,",
+"//             TYPRUN=HOLD",
+"//* TYPRUN=HOLD KEEPS THE JOB IN THE INPUT QUEUE (PRTY 14).",
+"//* IN SDSF ST TYPE A NEXT TO IT TO RELEASE IT, OR C TO CANCEL IT.",
+"//STEP1    EXEC PGM=IEFBR14"],
+SCHED:[
+"//SCHED    JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* SCHEDULE HOLDUNTL='+00:01' HOLDS THE JOB FOR ONE MINUTE, THEN",
+"//* RELEASES IT. WATCH THE STATUS COLUMN IN SDSF ST.",
+"//         SCHEDULE HOLDUNTL='+00:01'",
+"//STEP1    EXEC PGM=IEFBR14"],
+EXPORT:[
+"//EXPORT   JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* SYMBOLS=EXECSYS SEES SYSTEM SYMBOLS AND EXPORTED JCL SYMBOLS ONLY:",
+"//* &TEAM IS REPLACED, &SECRET IS NOT.",
+"//         EXPORT SYMLIST=(TEAM)",
+"//         SET TEAM=OPERATIONS",
+"//         SET SECRET=XYZZY",
+"//STEP1    EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT2   DD SYSOUT=*",
+"//SYSUT1   DD *,SYMBOLS=EXECSYS",
+"TEAM=&TEAM SECRET=&SECRET SYSTEM=&SYSNAME USER=&SYSUID",
+"/*"]
+};
+const PROCLIB={
+COPY:[
+"//COPY     PROC IN=NULLFILE",
+"//*-----------------------------------------------------------------",
+"//* COPY A DATA SET TO SYSOUT WITH IEBGENER.",
+"//*   IN=  INPUT DATA SET (DEFAULT: EMPTY INPUT)",
+"//* OVERRIDE GEN.SYSUT1 / GEN.SYSUT2 TO CHANGE INPUT OR OUTPUT.",
+"//*-----------------------------------------------------------------",
+"//GEN      EXEC PGM=IEBGENER",
+"//         INCLUDE MEMBER=STDPRT",
+"//SYSIN    DD DUMMY",
+"//SYSUT1   DD DSN=&IN,DISP=SHR",
+"//SYSUT2   DD SYSOUT=*"],
+DELDS:[
+"//DELDS    PROC DSN=",
+"//* DELETE A DATA SET IF IT EXISTS. NO ERROR WHEN IT DOES NOT EXIST:",
+"//* DISP=MOD ALLOCATES IT AS NEW FIRST, THEN DELETE REMOVES IT.",
+"//DEL      EXEC PGM=IEFBR14",
+"//DD1      DD DSN=&DSN,DISP=(MOD,DELETE),SPACE=(TRK,0)"],
+STDPRT:[
+"//* INCLUDE GROUP: STANDARD MESSAGE OUTPUT",
+"//SYSPRINT DD SYSOUT=*"]
+};
+const SYSPROCLIB={
+IDCLIST:[
+"//IDCLIST  PROC LVL=&SYSUID",
+"//* SYSTEM PROCEDURE: LIST CATALOG ENTRIES FOR A HIGH-LEVEL QUALIFIER",
+"//LIST     EXEC PGM=IDCAMS",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD *,SYMBOLS=JCLONLY",
+"  LISTCAT LEVEL(&LVL)",
+"/*"]
+};
+function pds(members){const d=new Date(),m={};for(const k of Object.keys(members))m[k]={lines:members[k].slice(),created:ymd(d),changed:stamp(d)};return{dsorg:'PO',recfm:'FB',lrecl:80,members:m,created:ymd(d),vol:VOL};}
+
+/* ---------- helpers ---------- */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+const pad=(s,n)=>{s=String(s);return s.length>=n?s.slice(0,n):s+' '.repeat(n-s.length);};
+const padx=(s,n)=>{s=String(s);return s.length>=n?s:s+' '.repeat(n-s.length);};
+const lpad=(s,n)=>{s=String(s);return s.length>=n?s:' '.repeat(n-s.length)+s;};
+const z=(n,w=2)=>String(n).padStart(w,'0');
+const c=(cls,t)=>`<span class="${cls}">${esc(t)}</span>`;
+const R=h=>`<div class="ln">${h}</div>`;
+const DAYS=['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+const MON=['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+const MONL=['JANUARY','FEBRUARY','MARCH','APRIL','MAY','JUNE','JULY','AUGUST','SEPTEMBER','OCTOBER','NOVEMBER','DECEMBER'];
+const hms=(d,s='.')=>[d.getHours(),d.getMinutes(),d.getSeconds()].map(x=>z(x)).join(s);
+const ymd=d=>`${d.getFullYear()}/${z(d.getMonth()+1)}/${z(d.getDate())}`;
+const stamp=d=>`${ymd(d)} ${hms(d,':')}`;
+const jday=d=>Math.round((Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())-Date.UTC(d.getFullYear(),0,0))/864e5);
+const julian=d=>`${d.getFullYear()}${z(jday(d),3)}`;
+const banner=(t,w)=>{t=' '+t+' ';const l=Math.floor((w-t.length)/2);return '*'.repeat(l)+t+'*'.repeat(w-l-t.length);};
+const clean=l=>l.replace(/\s+$/,'');
+const rc4=n=>z(n,4);
+
+/* ---------- persistent state ---------- */
+function defaults(){
+  const d=new Date(), members={};
+  for(const k of Object.keys(SAMPLES)) members[k]={lines:SAMPLES[k].slice(),created:ymd(d),changed:stamp(d)};
+  return {v:1,nextJob:1234,jobs:[],seen:Object.keys(SAMPLES).concat(['lib:PROCLIB']),catalog:{
+    'USER01.JCL':{dsorg:'PO',recfm:'FB',lrecl:80,members,created:ymd(d),vol:VOL},
+    'USER01.PROCLIB':pds(PROCLIB),
+    'SYS1.PROCLIB':pds(SYSPROCLIB)
+  }};
+}
+let S;
+try{S=JSON.parse(localStorage.getItem(LSKEY)||'null');}catch(e){S=null;}
+if(!S||S.v!==1||!S.catalog) S=defaults();
+function save(){try{localStorage.setItem(LSKEY,JSON.stringify(S));}catch(e){}}
+// add samples introduced after this browser first saved its data
+if(!S.seen)S.seen=['HELLO','ALLOC','SORT','IFTEST','CLEANUP','BADJCL','ABEND'];
+{const lib=S.catalog[USER+'.JCL'],d=new Date();
+ for(const k of Object.keys(SAMPLES))if(!S.seen.includes(k)){if(lib&&!lib.members[k])lib.members[k]={lines:SAMPLES[k].slice(),created:ymd(d),changed:stamp(d)};S.seen.push(k);}
+ if(!S.seen.includes('lib:PROCLIB')){if(!S.catalog['USER01.PROCLIB'])S.catalog['USER01.PROCLIB']=pds(PROCLIB);S.seen.push('lib:PROCLIB');}
+ // the system library always exists
+ if(!S.catalog['SYS1.PROCLIB'])S.catalog['SYS1.PROCLIB']=pds(SYSPROCLIB);}
+// jobs left mid-run when the page closed are finished as "lost"
+// held jobs stay in the input queue across reloads; a job that was mid-run is marked lost
+for(const j of S.jobs) if(j.queue!=='PRINT'&&!(j.queue==='INPUT'&&j.status&&j.conv)){j.queue='PRINT';j.maxcc='JCL ERROR';delete j.status;}
+if(!S.zfs)S.zfs={'/u/user01/README':{lines:['THIS IS YOUR Z/OS UNIX HOME DIRECTORY.','FILES WRITTEN WITH DD PATH= APPEAR HERE (ISPF OPTION 3.17).'],mode:'SIRUSR,SIWUSR',changed:stamp(new Date())}};
+
+/* ======================================================================
+   JCL CONVERTER
+   ====================================================================== */
+const NAME_RE=/^[A-Z@#$][A-Z0-9@#$]{0,7}$/;
+const OPS=['JOB','EXEC','DD','SET','IF','ELSE','ENDIF','JCLLIB','OUTPUT','INCLUDE','PROC','PEND','CNTL','ENDCNTL','EXPORT','COMMAND','XMIT','SCHEDULE','JOBGROUP','ENDGROUP','GJOB','JOBSET','SJOB','ENDSET','AFTER','BEFORE','CONCURRENT'];
+const KW={
+  INCLUDE:['MEMBER'],JCLLIB:['ORDER'],EXPORT:['SYMLIST'],
+  SCHEDULE:'AFTER BEFORE DELAY HOLDUNTL STARTBY WITH JOBGROUP'.split(' '),
+  XMIT:'DEST DLM SUBCHARS'.split(' '),
+  OUTPUT:'ADDRESS AFPPARMS AFPSTATS BUILDING BURST CHARS CKPTLINE CKPTPAGE CKPTSEC CLASS COLORMAP COMPACT COMSETUP CONTROL COPIES COPYCNT DATACK DEFAULT DEPT DEST DPAGELBL DUPLEX FCB FLASH FORMDEF FORMLEN FORMS FSSDATA GROUPID INDEX INTRAY JESDS LINDEX LINECT MAILBCC MAILCC MAILFILE MAILFROM MAILTO MERGE MODIFY NAME NOTIFY OFFSETXB OFFSETXF OFFSETYB OFFSETYF OUTBIN OUTDISP OVERLAYB OVERLAYF OVFL PAGEDEF PIMSG PORTNO PRMODE PRTATTRS PRTERROR PRTOPTNS PRTQUEUE PRTY REPLYTO RESFMT RETAINF RETAINS RETRYL RETRYT ROOM SYSAREA THRESHLD TITLE TRC UCS USERDATA USERLIB USERPATH WRITER'.split(' '),
+  JOB:'CLASS MSGCLASS MSGLEVEL NOTIFY REGION TIME TYPRUN USER PASSWORD COND PRTY RESTART ADDRSPC BYTES LINES PAGES CARDS GROUP SECLABEL SCHENV JOBRC MEMLIMIT RD UJOBCORR SYSAFF SYSTEM EMAIL PERFORM DSENQSHR'.split(' '),
+  EXEC:'PGM PROC PARM COND REGION TIME ACCT ADDRSPC DYNAMNBR PERFORM RD MEMLIMIT PARMDD CCSID'.split(' '),
+  DD:'DSN DSNAME DISP SYSOUT SPACE UNIT VOL VOLUME DCB RECFM LRECL BLKSIZE DSORG DLM LIKE DATACLAS STORCLAS MGMTCLAS AVGREC LABEL FREE DSNTYPE PATH PATHOPTS PATHMODE PATHDISP HOLD OUTPUT DEST COPIES FCB UCS SPIN SEGMENT KEYLEN KEYOFF RECORG RETPD EXPDT BUFNO OUTLIM REFDD SECMODEL SUBSYS TERM BURST CHARS FLASH MODIFY DDNAME ACCODE AMP CNTL CHKPT EATTR FILEDATA LGSTREAM MAXGENS PROTECT SYMBOLS SYMLIST GDGORDER'.split(' ')
+};
+function takeOperand(s){let q=false;for(let k=0;k<s.length;k++){const ch=s[k];if(ch==="'")q=!q;else if(ch===' '&&!q)return s.slice(0,k);}return s;}
+function splitTop(s){
+  const out=[];let d=0,q=false,cur='';
+  for(const ch of s){
+    if(ch==="'"){q=!q;cur+=ch;continue;}
+    if(!q){if(ch==='(')d++;else if(ch===')')d--;else if(ch===','&&d===0){out.push(cur);cur='';continue;}}
+    cur+=ch;
+  }
+  if(cur!==''||out.length)out.push(cur);
+  return out;
+}
+const canonKw=k=>k==='DSNAME'?'DSN':k==='VOLUME'?'VOL':k;
+function parseParams(s){const pos=[],kw={},dups=[];if(!s)return{pos,kw,dups};for(const p of splitTop(s)){const m=p.match(/^([A-Z][A-Z0-9]*(?:\.[A-Z@#$][A-Z0-9@#$]*)?)=([\s\S]*)$/);if(m){if(Object.keys(kw).some(x=>canonKw(x)===canonKw(m[1])))dups.push(m[1]);kw[m[1]]=m[2];}else pos.push(p);}return{pos,kw,dups};}
+// returns null when parentheses and apostrophes are balanced
+function balance(s){
+  let d=0,q=false,q0=-1;
+  for(let k=0;k<s.length;k++){const ch=s[k];
+    if(ch==="'"){if(q&&s[k+1]==="'"){k++;continue;}q=!q;if(q)q0=k;continue;}
+    if(q)continue;
+    if(ch==='(')d++;else if(ch===')'){d--;if(d<0)return{t:'P'};}
+  }
+  if(q){const m=s.slice(0,q0).match(/([A-Z][A-Z0-9]*)=[^=]*$/);return{t:'Q',kw:m?m[1]:'OPERAND'};}
+  return d?{t:'P'}:null;
+}
+
+/* ---------- field validation (messages modeled on z/OS converter messages) ---------- */
+const FMT=(E,f)=>E(`IEFC632I INCORRECT FORMAT IN THE ${f} FIELD`);
+const LEN=(E,f)=>E(`IEFC642I EXCESSIVE PARAMETER LENGTH IN THE ${f} FIELD`);
+const MUT=(E,a,b)=>E(`IEFC009I ${a} AND ${b} KEYWORDS ARE MUTUALLY EXCLUSIVE`);
+const UNITS=['SYSDA','SYSALLDA','SYSSQ','VIO','SYSVIO','3390','3380','TAPE','CART','3490','3590'];
+const STEPREF=/^[A-Z@#$][A-Z0-9@#$]{0,7}(\.[A-Z@#$][A-Z0-9@#$]{0,7})?$/;
+function checkCond(v,E,jobLevel){
+  const items=sub(v);let tests=[];
+  if(!items.length||items.every(x=>x===''))return FMT(E,'COND');
+  if(/^\d+$/.test(items[0]))tests=[items];
+  else for(const it of items){if(!jobLevel&&(it==='EVEN'||it==='ONLY'))continue;tests.push(sub(it));}
+  if(tests.length>8)return FMT(E,'COND');
+  for(const t of tests){const[code,op,stp]=t;
+    if(!/^\d+$/.test(code||'')||+code>4095||!['GT','GE','EQ','LT','LE','NE'].includes(op)||t.length>(jobLevel?2:3)||(stp!==undefined&&!STEPREF.test(stp)))return FMT(E,'COND');}
+}
+function checkTime(v,E){if(!/^(NOLIMIT|MAXIMUM|1440|\d{1,6}|\(\d{0,6},?\d{0,2}\))$/.test(v))FMT(E,'TIME');}
+function checkRegion(v,E){if(!/^\d{1,7}[KM]$/.test(v))FMT(E,'REGION');}
+function checkDsn(v,E){
+  if(v===''){FMT(E,'DSNAME');return;}
+  if(v.startsWith('*.')||v==='NULLFILE')return;
+  const m=v.match(/^([^()]*)(?:\(([^()]*)\))?$/);
+  if(!m){FMT(E,'DSNAME');return;}
+  const dsn=m[1],mem=m[2];
+  if(dsn.startsWith('&&')){if(!/^&&[A-Z@#$][A-Z0-9@#$]{0,7}$/.test(dsn))(dsn.length>10?LEN:FMT)(E,'DSNAME');}
+  else{
+    if(dsn.includes('&')){E('IEFC629I INCORRECT USE OF AMPERSAND IN THE DSNAME FIELD');return;}
+    if(dsn.length>44){LEN(E,'DSNAME');return;}
+    const qs=dsn.split('.');
+    if(qs.some(q=>q==='')){E('IEFC624I INCORRECT USE OF PERIOD IN THE DSNAME FIELD');return;}
+    if(qs.some(q=>q.length>8)){LEN(E,'DSNAME');return;}
+    if(qs.some(q=>!/^[A-Z@#$][A-Z0-9@#$-]*$/.test(q))){FMT(E,'DSNAME');return;}
+  }
+  if(mem!==undefined&&!/^([A-Z@#$][A-Z0-9@#$]{0,7}|[+-]?\d{1,3})$/.test(mem))FMT(E,'DSNAME');
+}
+const VOLUMES=['USER00','USER01','WORK01','SYSRES'];
+function checkDate(v){return /^(\d{4}\/\d{3}|\d{5})$/.test(v);}
+const VALIDATE={
+  OUTPUT(st,E){const{kw}=st.p;
+    if(kw.CLASS!==undefined&&!/^([A-Z0-9*]|)$/.test(kw.CLASS))FMT(E,'CLASS');
+    if(kw.DEFAULT!==undefined&&!['YES','NO','Y','N'].includes(kw.DEFAULT))FMT(E,'DEFAULT');
+    if(kw.JESDS!==undefined&&!['ALL','JCL','LOG','MSG'].includes(kw.JESDS))FMT(E,'JESDS');
+    if(kw.COPIES!==undefined&&!(/^\d{1,3}$/.test(sub(kw.COPIES)[0])&&+sub(kw.COPIES)[0]>=1&&+sub(kw.COPIES)[0]<=255))FMT(E,'COPIES');
+    if(kw.DEST!==undefined&&!/^[A-Z0-9@#$.]{1,17}$/.test(kw.DEST))FMT(E,'DEST');
+    if(kw.PRTY!==undefined&&!(/^\d{1,3}$/.test(kw.PRTY)&&+kw.PRTY<=255))FMT(E,'PRTY');
+  },
+  EXPORT(st,E){const v=st.p.kw.SYMLIST;if(v===undefined||(v!=='*'&&!sub(v).every(x=>NAME_RE.test(x))))FMT(E,'SYMLIST');},
+  SCHEDULE(st,E){const{kw}=st.p;
+    for(const k of['HOLDUNTL','STARTBY'])if(kw[k]!==undefined){const t=sub(kw[k]).map(unq);if(!/^\+?\d{1,2}:\d{2}$/.test(t[0]||'')||(t[1]!==undefined&&!/^\d{2}\/\d{2}\/\d{4}$/.test(t[1])))FMT(E,k);}
+    for(const k of['AFTER','BEFORE','WITH'])if(kw[k]!==undefined&&!NAME_RE.test(sub(kw[k])[0]||''))FMT(E,k);
+    if(kw.DELAY!==undefined&&!['YES','NO'].includes(kw.DELAY))FMT(E,'DELAY');
+  },
+  INCLUDE(st,E){if(st.p.kw.MEMBER===undefined||!NAME_RE.test(st.p.kw.MEMBER))FMT(E,'MEMBER');},
+  JCLLIB(st,E){const o=st.p.kw.ORDER;if(o===undefined||!sub(o).map(unq).filter(Boolean).length)FMT(E,'ORDER');},
+  JOB(st,E){const{kw,pos}=st.p;
+    if(kw.CLASS!==undefined&&!/^[A-Z0-9]$/.test(kw.CLASS))FMT(E,'CLASS');
+    if(kw.MSGCLASS!==undefined&&!/^[A-Z0-9]$/.test(kw.MSGCLASS))FMT(E,'MSGCLASS');
+    if(kw.MSGLEVEL!==undefined){const m=sub(kw.MSGLEVEL);if(m.length>2||!/^[0-2]?$/.test(m[0]||'')||(m[1]!==undefined&&!/^[01]$/.test(m[1])))FMT(E,'MSGLEVEL');}
+    if(kw.NOTIFY!==undefined&&!/^[A-Z@#$][A-Z0-9@#$]{0,7}$/.test(kw.NOTIFY))FMT(E,'NOTIFY');
+    if(kw.TYPRUN!==undefined&&!['SCAN','HOLD','JCLHOLD','COPY'].includes(kw.TYPRUN))FMT(E,'TYPRUN');
+    if(kw.TIME!==undefined)checkTime(kw.TIME,E);
+    if(kw.REGION!==undefined)checkRegion(kw.REGION,E);
+    if(kw.COND!==undefined)checkCond(kw.COND,E,true);
+    if(kw.PRTY!==undefined&&!(/^\d{1,2}$/.test(kw.PRTY)&&+kw.PRTY<=15))FMT(E,'PRTY');
+    if(kw.RESTART!==undefined&&!/^\(?(\*|[A-Z@#$][A-Z0-9@#$]{0,7}(\.[A-Z@#$][A-Z0-9@#$]{0,7})?)(,[A-Z@#$][A-Z0-9@#$]{0,7})?\)?$/.test(kw.RESTART))FMT(E,'RESTART');
+    if(kw.MEMLIMIT!==undefined&&!/^(NOLIMIT|\d{1,5}[MGTP])$/.test(kw.MEMLIMIT))FMT(E,'MEMLIMIT');
+    if(pos[1]!==undefined&&unq(pos[1]).length>20)LEN(E,"PROGRAMMER'S NAME");
+    if(pos.length>2)FMT(E,'POSITIONAL');
+  },
+  EXEC(st,E){const{kw,pos}=st.p;
+    if(kw.PGM!==undefined){const v=kw.PGM;
+      if(!v.startsWith('*.')){if(v.length>8)LEN(E,'PGM');else if(!NAME_RE.test(v))FMT(E,'PGM');}
+      if(kw.PROC!==undefined||pos.length)MUT(E,'PGM','PROC');}
+    if(kw.PARM!==undefined&&unq(kw.PARM).length>100)LEN(E,'PARM');
+    if(kw.PARM!==undefined&&kw.PARMDD!==undefined)MUT(E,'PARM','PARMDD');
+    if(kw.COND!==undefined)checkCond(kw.COND,E,false);
+    if(kw.TIME!==undefined)checkTime(kw.TIME,E);
+    if(kw.REGION!==undefined)checkRegion(kw.REGION,E);
+  },
+  DD(st,E){const{kw,pos}=st.p;
+    for(const p of pos)if(p!==''&&!['*','DATA','DUMMY'].includes(p))E(`IEFC630I UNIDENTIFIED KEYWORD ${p.slice(0,8)}`);
+    if(pos.filter(Boolean).length>1)FMT(E,'POSITIONAL');
+    const dsn=kw.DSN!==undefined?kw.DSN:kw.DSNAME;
+    if(dsn!==undefined)checkDsn(unq(dsn),E);
+    if(kw.SYSOUT!==undefined){
+      if(!/^\(?[A-Z0-9*$]?(,[^)]*)?\)?$/.test(kw.SYSOUT))FMT(E,'SYSOUT');
+      for(const k of['DISP','SPACE','UNIT','VOL','VOLUME'])if(kw[k]!==undefined){MUT(E,'SYSOUT',k);break;}
+    }
+    if(kw.DISP!==undefined){const d=sub(kw.DISP);
+      if(d.length>3||!['','NEW','OLD','SHR','MOD'].includes(d[0])||(d[1]!==undefined&&!['','DELETE','KEEP','PASS','CATLG','UNCATLG'].includes(d[1]))||(d[2]!==undefined&&!['','DELETE','KEEP','CATLG','UNCATLG'].includes(d[2])))FMT(E,'DISP');}
+    if(kw.SPACE!==undefined){const s=sub(kw.SPACE);const q=sub(s[1]||'');
+      if(!/^(TRK|CYL|\d{1,5})$/.test(s[0]||'')||s[1]===undefined||!/^\d{1,8}$/.test(q[0]||'')||q.length>3||q.slice(1).some(x=>!/^\d{0,8}$/.test(x))||s.slice(2).some(x=>!['','RLSE','CONTIG','MXIG','ALX','ROUND'].includes(x)))FMT(E,'SPACE');}
+    if(kw.UNIT!==undefined&&!/^[A-Z0-9@#$\/]{1,8}$/.test(sub(kw.UNIT)[0]||''))FMT(E,'UNIT');
+    const dcb=kw.DCB!==undefined?parseParams(sub(kw.DCB).join(',')):{kw:{},pos:[]};
+    for(const k of Object.keys(dcb.kw))if(!['RECFM','LRECL','BLKSIZE','DSORG','BUFNO','KEYLEN','OPTCD','EROPT','NCP','BFALN'].includes(k))E(`IEFC630I UNIDENTIFIED KEYWORD ${k}`);
+    const recfm=kw.RECFM||dcb.kw.RECFM,lrecl=kw.LRECL||dcb.kw.LRECL,blk=kw.BLKSIZE||dcb.kw.BLKSIZE,dsorg=kw.DSORG||dcb.kw.DSORG;
+    if(recfm!==undefined&&!/^(F|FB|FBA|FBS|FA|V|VB|VBA|VBS|VA|U|UA)$/.test(recfm))FMT(E,'RECFM');
+    if(lrecl!==undefined&&lrecl!=='X'&&!(/^\d{1,5}$/.test(lrecl)&&+lrecl>=1&&+lrecl<=32760))FMT(E,'LRECL');
+    if(blk!==undefined&&!(/^\d{1,5}$/.test(blk)&&+blk<=32760))FMT(E,'BLKSIZE');
+    if(dsorg!==undefined&&!['PS','PO','DA','IS','POU','PSU'].includes(dsorg))FMT(E,'DSORG');
+    if(kw.DLM!==undefined&&unq(kw.DLM).length!==2)FMT(E,'DLM');
+    if(kw.DSNTYPE!==undefined&&!['LIBRARY','PDS','BASIC','LARGE','EXTREQ','EXTPREF','HFS','PIPE'].includes(sub(kw.DSNTYPE)[0]))FMT(E,'DSNTYPE');
+    // VOL=SER=x / VOL=(,,,,SER=x) / VOL=REF=x
+    const vol=kw.VOL!==undefined?kw.VOL:kw.VOLUME;
+    if(vol!==undefined){const vp=parseParams(vol.startsWith('(')?sub(vol).join(','):vol);
+      if(vp.kw.SER!==undefined&&!sub(vp.kw.SER).every(s=>/^[A-Z0-9@#$]{1,6}$/.test(s)))FMT(E,'VOLUME');
+      if(vp.kw.REF!==undefined&&!(vp.kw.REF.startsWith('*.')||/^[A-Z@#$][A-Z0-9@#$.-]{0,43}$/.test(vp.kw.REF)))FMT(E,'VOLUME');
+      if(vp.kw.SER===undefined&&vp.kw.REF===undefined)FMT(E,'VOLUME');}
+    const lab=kw.LABEL!==undefined?parseParams(sub(kw.LABEL).join(',')):{kw:{},pos:[]};
+    if(kw.LABEL!==undefined){const p2=lab.pos[1];if(p2!==undefined&&p2!==''&&!['SL','NL','AL','SUL','AUL','NSL','LTM','BLP'].includes(p2))FMT(E,'LABEL');}
+    const ex=kw.EXPDT||lab.kw.EXPDT,rp=kw.RETPD||lab.kw.RETPD;
+    if(ex!==undefined&&!checkDate(ex))FMT(E,'EXPDT');
+    if(rp!==undefined&&!(/^\d{1,5}$/.test(rp)&&+rp<=93000))FMT(E,'RETPD');
+    if(ex!==undefined&&rp!==undefined)MUT(E,'EXPDT','RETPD');
+    if(kw.PATH!==undefined){const p=unq(kw.PATH);if(!p.startsWith('/')||p.length>255)FMT(E,'PATH');
+      for(const k of['DSN','DSNAME','SYSOUT','DISP'])if(kw[k]!==undefined){MUT(E,'PATH',k==='DSNAME'?'DSN':k);break;}}
+    for(const k of['PATHOPTS','PATHMODE','PATHDISP','FILEDATA'])if(kw[k]!==undefined&&kw.PATH===undefined)E(`IEFC009I ${k} REQUIRES THE PATH KEYWORD`);
+    if(kw.PATHOPTS!==undefined&&!sub(kw.PATHOPTS).every(x=>['ORDONLY','OWRONLY','ORDWR','OAPPEND','OCREAT','OEXCL','ONOCTTY','ONONBLOCK','OSYNC','OTRUNC'].includes(x)))FMT(E,'PATHOPTS');
+    if(kw.PATHMODE!==undefined&&!sub(kw.PATHMODE).every(x=>/^S(I[RWX](USR|GRP|OTH)|IRWX[UGO]|ISUID|ISGID|ISVTX)$/.test(x)))FMT(E,'PATHMODE');
+    if(kw.PATHDISP!==undefined&&!sub(kw.PATHDISP).every(x=>['','KEEP','DELETE'].includes(x)))FMT(E,'PATHDISP');
+    if(kw.FILEDATA!==undefined&&!['TEXT','BINARY','RECORD'].includes(kw.FILEDATA))FMT(E,'FILEDATA');
+    if(kw.SPIN!==undefined&&!/^(NO|UNALLOC|\(UNALLOC,.+\))$/.test(kw.SPIN))FMT(E,'SPIN');
+    if(kw.FREE!==undefined&&!['END','CLOSE'].includes(kw.FREE))FMT(E,'FREE');
+    if(kw.HOLD!==undefined&&!['YES','NO','Y','N'].includes(kw.HOLD))FMT(E,'HOLD');
+    if(kw.OUTLIM!==undefined&&!(/^\d{1,8}$/.test(kw.OUTLIM)&&+kw.OUTLIM<=16777215))FMT(E,'OUTLIM');
+    if(kw.OUTLIM!==undefined&&kw.SYSOUT===undefined)E('IEFC009I OUTLIM REQUIRES THE SYSOUT KEYWORD');
+    if(kw.COPIES!==undefined&&!/^\d{1,3}$/.test(sub(kw.COPIES)[0]||''))FMT(E,'COPIES');
+    if(kw.AVGREC!==undefined&&!['U','K','M'].includes(kw.AVGREC))FMT(E,'AVGREC');
+    if(kw.LIKE!==undefined)checkDsn(unq(kw.LIKE),E);
+    if(kw.REFDD!==undefined&&!/^\*\.[A-Z@#$][A-Z0-9@#$.]*$/.test(kw.REFDD))FMT(E,'REFDD');
+    if(kw.DDNAME!==undefined){if(!NAME_RE.test(kw.DDNAME))FMT(E,'DDNAME');
+      for(const k of Object.keys(kw))if(!['DDNAME','DCB','RECFM','LRECL','BLKSIZE','BUFNO','DSORG'].includes(k)){MUT(E,'DDNAME',k);break;}}
+  }
+};
+function sub(v){v=v||'';if(v.startsWith('(')&&v.endsWith(')'))v=v.slice(1,-1);return splitTop(v);}
+const unq=v=>(v||'').replace(/^'(.*)'$/,'$1');
+
+function splitDecks(lines){
+  // each deck remembers where it starts in the editor buffer, so errors can be mapped back to lines
+  const decks=[];let cur=null,prio=[];
+  const isJob=l=>/^\/\/(?!\*)\S+\s+JOB(\s|$)/.test(l||'');
+  lines.forEach((l,k)=>{
+    // /*PRIORITY goes in front of the JOB statement; it is kept and handed to that job
+    if(/^\/\*PRIORITY\b/.test(l)&&isJob(lines[k+1])){prio.push(l);return;}
+    if(isJob(l)){cur=[l];cur.start=k;cur.gen=false;cur.tail=prio;prio=[];decks.push(cur);}
+    else{
+      if(!cur){if(l.trim()==='')return;cur=[`//${USER}A JOB (ACCT),'${USER}',NOTIFY=&SYSUID`];cur.start=k;cur.gen=true;decks.push(cur);}
+      cur.push(l);
+    }
+  });
+  return decks;
+}
+
+/* ---------- phase 1: read card images into raw statements (no symbols resolved yet) ---------- */
+function readCards(lines){
+  const items=[];let i=0;const L=k=>lines[k]||'';
+  while(i<lines.length){
+    const full=L(i),raw=clean(full.slice(0,71));
+    if(full.startsWith('//*')){items.push({kind:'comment',t:clean(full.slice(0,72)),line:i});i++;continue;}
+    if(raw==='//'){items.push({kind:'null',t:raw,line:i});break;}
+    if(raw.startsWith('/*')){
+      // JES2 control statement (/*JOBPARM etc.); a bare /* is a delimiter
+      const m=raw.match(/^\/\*([A-Z]+)\s*(.*)$/);
+      if(m)items.push({kind:'jes2',verb:m[1],operand:m[2].trim(),t:raw,line:i});
+      i++;continue;
+    }
+    if(!raw.startsWith('//')){
+      if(raw.trim()===''){i++;continue;}
+      const data=[],at=i;
+      while(i<lines.length&&!L(i).startsWith('//')&&!L(i).startsWith('/*')){data.push(clean(L(i).slice(0,80)));i++;}
+      if(i<lines.length&&L(i).startsWith('/*'))i++;
+      items.push({kind:'stmt',gen:true,name:'SYSIN',op:'DD',operand:'*',texts:['//SYSIN    DD *     GENERATED STATEMENT'],line:at,data});
+      continue;
+    }
+    const it={kind:'stmt',line:i,texts:[raw],cerrs:[]};
+    let body=raw.slice(2),name='';
+    if(body[0]&&body[0]!==' '){name=body.match(/^\S+/)[0];body=body.slice(name.length);}
+    body=body.trimStart();
+    const op=(body.match(/^\S+/)||[''])[0];body=body.slice(op.length).trimStart();
+    i++;
+    let operand;
+    if(op==='IF')operand=body;
+    else{
+      operand=takeOperand(body);
+      while(operand.endsWith(',')){
+        const nx=clean(L(i).slice(0,71));
+        if(nx.startsWith('//*')){it.texts.push(nx);i++;continue;}
+        if(nx.startsWith('//')&&nx[2]===' '&&nx.slice(2).trim()!==''){
+          const lead=nx.slice(2).match(/^ */)[0].length;
+          it.texts.push(nx);
+          if(lead>13){it.cerrs.push({m:'IEFC621I EXPECTED CONTINUATION NOT RECEIVED',line:i});i++;break;}
+          i++;operand+=takeOperand(nx.slice(2).trimStart());
+        }else{it.cerrs.push({m:'IEFC621I EXPECTED CONTINUATION NOT RECEIVED',line:i-1});break;}
+      }
+      if(operand.endsWith(','))operand=operand.slice(0,-1);
+    }
+    Object.assign(it,{name,op,operand});
+    if(op==='DD'){
+      const pp=splitTop(operand);
+      if(pp.includes('*')||pp.includes('DATA')){
+        const dk=pp.find(x=>/^DLM=/.test(x)),dlm=dk?unq(dk.slice(4)):'/*',isData=pp.includes('DATA');it.data=[];
+        while(i<lines.length){const x=L(i);if(x.startsWith(dlm)){i++;break;}if(!isData&&x.startsWith('//'))break;it.data.push(clean(x.slice(0,80)));i++;}
+      }
+    }
+    items.push(it);
+  }
+  return items;
+}
+const SYSLIBS=['SYS1.PROCLIB'];
+function findMember(name,jcllib){
+  for(const lib of (jcllib||[]).concat(SYSLIBS)){const e=S.catalog[lib];if(e&&e.dsorg==='PO'&&e.members[name])return{lib,sys:SYSLIBS.includes(lib),lines:e.members[name].lines};}
+  return null;
+}
+function substitute(text,vals,onUse){
+  return text.replace(/&&|&([A-Z@#$][A-Z0-9@#$]{0,7})(\.?)/g,(m,n)=>{if(m==='&&')return m;if(n in vals){onUse(n);return vals[n];}return m;});
+}
+// apply an overriding DD statement to a procedure DD statement
+function mergeDD(p,o){
+  const kw=Object.assign({},p.p.kw);let pos=p.p.pos.filter(Boolean),data=p.data;
+  const ok=o.p.kw,opos=o.p.pos.filter(Boolean);
+  const drop=ks=>{for(const pk of Object.keys(kw))if(ks.includes(canonKw(pk)))delete kw[pk];};
+  if(opos.length){pos=opos;if(opos.includes('*')||opos.includes('DATA')){data=o.data;drop(['DSN','DISP','SYSOUT','SPACE','UNIT','VOL']);}else data=undefined;}
+  if(ok.SYSOUT!==undefined)drop(['DSN','DISP','SPACE','UNIT','VOL']);
+  if(ok.DSN!==undefined||ok.DSNAME!==undefined){drop(['SYSOUT']);if(!opos.length){pos=pos.filter(x=>!['DUMMY','*','DATA'].includes(x));data=undefined;}}
+  else if(ok.DISP!==undefined)drop(['SYSOUT']);
+  for(const[k,v]of Object.entries(ok)){drop([canonKw(k)]);if(v!=='')kw[k]=v;}
+  return Object.assign({},p,{p:{pos,kw,dups:[]},data});
+}
+
+/* ---------- phase 2: expand procedures, INCLUDE groups and symbols; validate each statement ---------- */
+// system symbols available to batch JCL (static and dynamic)
+function sysSymbols(){
+  const d=new Date();
+  return{SYSUID:USER,SYSNAME:SYSID,SYSCLONE:SYSID.slice(-2),SYSPLEX:'LOCAL',
+    LYYMMDD:String(d.getFullYear()).slice(2)+z(d.getMonth()+1)+z(d.getDate()),LYR4:String(d.getFullYear()),LYR2:String(d.getFullYear()).slice(2),
+    LMON:z(d.getMonth()+1),LDAY:z(d.getDate()),LJDAY:z(jday(d),3),LHHMMSS:hms(d,''),LHR:z(d.getHours()),LMIN:z(d.getMinutes()),LSEC:z(d.getSeconds()),
+    LWDAY:DAYS[d.getDay()].slice(0,3)};
+}
+const JES2_VERBS={
+  JOBPARM:'BYTES B CARDS C COPIES N FORMS F LINECT K LINES L NOLOG J PAGES P PROCLIB PROC RESTART E ROOM R SYSAFF S TIME T'.split(' '),
+  OUTPUT:null,ROUTE:null,PRIORITY:null,MESSAGE:null,NOTIFY:null,XEQ:null,SETUP:null,SIGNON:null,SIGNOFF:null,NETACCT:null,XMIT:null,
+  JOBPRTY:null
+};
+function convert(lines){
+  const listing=[],errs=[],stmts=[];
+  const SYSSYM=sysSymbols();
+  const gsym=Object.assign({},SYSSYM);const setAt={},used=new Set();const onG=n=>used.add(n);
+  const exported=new Set();
+  const jes2={jobparm:{},priority:null,route:null,notify:null,messages:[],xeq:null};
+  const instream={};let jcllib=null,sawExec=false,no=0;
+  const errAt=(n,line,m,sev)=>errs.push({no:n,m,line,sev:sev||'E'});
+
+  function emit(it,pfx,vals,onUse,errLine){
+    no++;const sno=no;
+    const line=it.errLine!=null?it.errLine:(errLine!=null?errLine:it.line);
+    const ctxText=(pfx==='XX'||pfx==='X/')?pfx+it.texts[0].slice(2):null;
+    const E=(m,sev)=>errs.push({no:sno,m,line,sev:sev||'E',ctx:ctxText});
+    it.texts.forEach((t,k)=>listing.push({no:k===0?sno:'',t:it.gen?t:pfx+t.slice(2)}));
+    if(it.after)listing.push({no:'',t:it.after,sub:true});
+    if(it.preErr)E(it.preErr);
+    for(const ce of it.cerrs||[])errs.push({no:sno,m:ce.m,line:it.errLine!=null?it.errLine:(errLine!=null?errLine:ce.line),sev:'E',ctx:ctxText});
+    const{name,op,operand}=it;
+    const st={no:sno,name,op,line,pfx};
+    if(it.gen){st.p={pos:['*'],kw:{},dups:[]};st.data=it.data.slice();return st;}
+    let subd=operand;
+    if(op!=='IF'){subd=substitute(operand,vals,onUse);if(subd!==operand&&!['JOB','SET','PROC'].includes(op))listing.push({no:'',t:'IEFC653I SUBSTITUTION JCL - '+subd,sub:true});}
+    st.raw=subd;
+    if(!op||!OPS.includes(op)){E('IEFC605I UNIDENTIFIED OPERATION FIELD');st.bad=true;return st;}
+    if(name&&!(op==='DD'?STEPREF:NAME_RE).test(name))E('IEFC662I INVALID LABEL');
+    if((op==='JOB'||op==='PROC')&&!name)E('IEFC662I INVALID LABEL');
+    if(op==='IF'){
+      const m=operand.match(/^(.*?)\s*\bTHEN\b/);
+      if(!m){E('IEFC013I ERROR IN IF STATEMENT - THEN IS MISSING');st.expr='TRUE';}
+      else{st.expr=m[1];try{evalIf(st.expr,{maxrc:0,abend:false,steps:{}});}catch(e){E('IEFC013I ERROR IN IF STATEMENT');st.expr='TRUE';}}
+      st.refs=(st.expr.match(/[A-Z@#$][A-Z0-9@#$]*(?=\.(?:RC|ABEND|RUN|ABENDCC)\b)/g)||[]);
+      st.p={pos:[],kw:{},dups:[]};
+      return st;
+    }
+    const bal=balance(subd);
+    if(bal){
+      if(bal.t==='P')E('IEFC622I UNBALANCED PARENTHESIS');
+      else E(`IEFC624I INCORRECT USE OF APOSTROPHE IN THE ${bal.kw} FIELD`);
+      st.p={pos:/(^|,)(\*|DATA)(,|$)/.test(subd)?['*']:[],kw:{},dups:[]};st.balErr=true;
+    }else{
+      st.p=parseParams(subd);
+      const callsProc=op==='EXEC'&&st.p.kw.PGM===undefined;
+      const allowed=KW[op];
+      if(allowed)for(const k of Object.keys(st.p.kw)){
+        if(callsProc){if(k.includes('.')&&!allowed.includes(k.split('.')[0]))E(`IEFC630I UNIDENTIFIED KEYWORD ${k}`);}
+        else if(!allowed.includes(k))E(`IEFC630I UNIDENTIFIED KEYWORD ${k}`);
+      }
+      for(const k of st.p.dups)E(`IEFC633I DUPLICATE KEYWORD ${k}`);
+      if(VALIDATE[op])VALIDATE[op](st,E);
+    }
+    if(it.data){
+      st.data=it.data.slice();
+      const sy=st.p.kw.SYMBOLS;
+      if(sy!==undefined){const mode=sub(sy)[0];
+        if(['JCLONLY','EXECSYS','CNVTSYS'].includes(mode)){
+          // JCLONLY: JCL symbols; EXECSYS/CNVTSYS: system symbols plus symbols named on EXPORT
+          let tbl=vals;
+          if(mode!=='JCLONLY'){tbl=Object.assign({},SYSSYM);for(const k of exported)if(k in vals)tbl[k]=vals[k];}
+          st.data=st.data.map(l=>substitute(l,tbl,onUse));
+        }
+        else FMT(E,'SYMBOLS');}
+    }
+    return st;
+  }
+  // list a statement without interpreting it (in-stream procedure definitions)
+  function listRaw(it,pfx){
+    if(it.kind!=='stmt'){listing.push({no:'',t:pfx+it.t.slice(2)});return null;}
+    no++;it.texts.forEach((t,k)=>listing.push({no:k===0?no:'',t:pfx+t.slice(2)}));return no;
+  }
+  function applySet(st,vals){
+    for(const[k,v]of Object.entries(st.p.kw)){gsym[k]=unq(v);if(vals&&vals!==gsym)vals[k]=unq(v);setAt[k]={no:st.no,line:st.line};}
+  }
+  // replace INCLUDE at arr[k] by a copy that carries its result, and insert the group's statements after it
+  function spliceInclude(arr,k,ctxLine){
+    const x=arr[k],depth=(x.incDepth||0)+1;const c=Object.assign({},x);arr[k]=c;
+    const m=(x.operand.match(/(?:^|,)MEMBER=([^,]*)/)||[])[1];
+    if(!m)return;
+    const mem=substitute(m,gsym,onG);
+    const tgt=x.errLine!=null?x.errLine:(ctxLine!=null?ctxLine:x.line);
+    if(depth>15){c.preErr='IEFC615I INCLUDE GROUPS ARE NESTED MORE THAN 15 LEVELS';return;}
+    const f=findMember(mem,jcllib);
+    if(!f){c.preErr=`IEFC614I INCLUDE GROUP ${mem} WAS NOT FOUND`;return;}
+    c.after=`IEFC002I INCLUDE GROUP ${mem} WAS EXPANDED USING ${f.sys?'SYSTEM':'PRIVATE'} LIBRARY ${f.lib}`;
+    const inc=readCards(f.lines).map(y=>Object.assign(y,{pfx:'XX',errLine:tgt,incDepth:depth}));
+    for(const y of inc)if(y.kind==='stmt'&&['JOB','PROC','PEND','JCLLIB'].includes(y.op))y.preErr=`IEFC019I MISPLACED ${y.op} STATEMENT`;
+    arr.splice(k+1,0,...inc);
+  }
+  function findProc(name){
+    if(instream[name])return{type:'instream',name,items:instream[name].body,procItem:instream[name].item};
+    const f=findMember(name,jcllib);
+    return f?{type:'lib',name,lib:f.lib,sys:f.sys,items:readCards(f.lines)}:null;
+  }
+  function expandProc(ex,proc,ovr,depth){
+    const isIn=proc.type==='instream',P=isIn?'++':'XX',PO=isIn?'+/':'X/';
+    const errLine=isIn?null:ex.line;
+    if(!isIn)listing.push({no:'',t:`IEFC001I PROCEDURE ${proc.name} WAS EXPANDED USING ${proc.sys?'SYSTEM':'PRIVATE'} LIBRARY ${proc.lib}`,sub:true});
+    const items=proc.items.slice();
+    let procItem=proc.procItem||null;
+    if(!isIn){const f=items.find(x=>x.kind==='stmt');if(f&&f.op==='PROC')procItem=f;}
+    const defaults={};
+    if(procItem)for(const[k,v]of Object.entries(parseParams(procItem.operand).kw))defaults[k]=unq(substitute(v,gsym,onG));
+    // EXEC operands: keyword.procstep, keyword for every step, or symbolic parameter
+    const execVals={},allOv={},stepOv={};
+    for(const[k,v]of Object.entries(ex.p.kw)){
+      if(k==='PROC')continue;
+      const[b,s]=k.split('.');
+      if(s!==undefined)(stepOv[s]=stepOv[s]||{})[b]=v;
+      else if(KW.EXEC.includes(b))allOv[b]=v;
+      else execVals[b]=unq(v);
+    }
+    const vals=Object.assign({},gsym,defaults,execVals);
+    const pUsed=new Set();const onP=n=>{used.add(n);pUsed.add(n);};
+    const stepNames=items.filter(x=>x.kind==='stmt'&&x.op==='EXEC').map(x=>x.name||'');
+    for(const s of Object.keys(stepOv))if(!stepNames.includes(s))errAt(ex.no,ex.line,`IEFC611I OVERRIDDEN STEP ${s} NOT FOUND IN PROCEDURE ${proc.name}`);
+    const lastStep=stepNames[stepNames.length-1];
+    const ovMap={};
+    for(const o of ovr){
+      if(o.kind!=='stmt'){listing.push({no:'',t:o.t});continue;}
+      let s,dd;
+      if(o.name&&o.name.includes('.'))[s,dd]=o.name.split('.');else{s=lastStep;dd=o.name;}
+      if(s===undefined||!stepNames.includes(s)){const st=emit(o,'//',gsym,onG);errAt(st.no,st.line,`IEFC611I OVERRIDDEN STEP ${s||''} NOT FOUND IN PROCEDURE ${proc.name}`);continue;}
+      (ovMap[s]=ovMap[s]||[]).push({dd,item:o,done:false});
+    }
+    let stepName=null,nth=0;
+    // DD statements that matched nothing in the step are added at its end
+    const flush=()=>{if(stepName===null)return;
+      for(const o of ovMap[stepName]||[])if(!o.done){o.done=true;const st=emit(o.item,'//',gsym,onG);if(!st.bad){st.name=o.dd;st.invoker=ex.name||'';stmts.push(st);}}};
+    for(let k=0;k<items.length;k++){
+      if(items[k].kind==='stmt'&&items[k].op==='INCLUDE')spliceInclude(items,k,errLine);
+      const x=items[k];
+      if(x.kind==='comment'){listing.push({no:'',t:(x.pfx||P)+x.t.slice(2)});continue;}
+      if(x.kind==='null')continue;
+      const pf=x.pfx||P;
+      if(x===procItem){listRaw(x,pf);continue;}
+      if(x.op==='PEND'){if(!isIn)listRaw(x,pf);continue;}
+      if(['JOB','PROC','JCLLIB'].includes(x.op)){const st=emit(x,pf,vals,onP,errLine);errAt(st.no,st.line,`IEFC019I MISPLACED ${x.op} STATEMENT`);continue;}
+      if(x.op==='EXEC'){
+        flush();
+        const st=emit(x,pf,vals,onP,errLine);
+        if(st.bad)continue;
+        stepName=st.name||'';
+        const first=nth++===0;
+        if('PARM' in allOv){if(first&&allOv.PARM!=='')st.p.kw.PARM=allOv.PARM;else delete st.p.kw.PARM;}
+        for(const[b,v]of Object.entries(allOv))if(b!=='PARM'){if(v==='')delete st.p.kw[b];else st.p.kw[b]=v;}
+        for(const[b,v]of Object.entries(stepOv[stepName]||{})){if(v==='')delete st.p.kw[b];else st.p.kw[b]=v;}
+        st.invoker=ex.name||'';
+        const inner=st.p.kw.PGM===undefined&&!st.balErr?(st.p.kw.PROC||st.p.pos[0]):null;
+        if(inner){
+          if(depth>=15){errAt(st.no,st.line,'IEFC616I PROCEDURES ARE NESTED MORE THAN 15 LEVELS');continue;}
+          const ip=findProc(inner);
+          if(ip){expandProc(st,ip,[],depth+1);continue;}
+        }
+        stmts.push(st);continue;
+      }
+      if(x.op==='DD'){
+        const o=stepName!==null&&x.name?(ovMap[stepName]||[]).find(v=>v.dd===x.name&&!v.done):null;
+        if(o){
+          o.done=true;
+          const ost=emit(o.item,'//',gsym,onG),pst=emit(x,PO,vals,onP,errLine);
+          if(ost.bad||pst.bad)continue;
+          const m=mergeDD(pst,ost);m.name=x.name;stmts.push(m);continue;
+        }
+        const st=emit(x,pf,vals,onP,errLine);if(!st.bad)stmts.push(st);continue;
+      }
+      const st=emit(x,pf,vals,onP,errLine);
+      if(st.bad)continue;
+      if(x.op==='SET')applySet(st,vals);
+      stmts.push(st);
+    }
+    flush();
+    for(const k of Object.keys(execVals))if(!pUsed.has(k))errAt(ex.no,ex.line,`IEFC657I THE SYMBOL ${k} WAS NOT USED`);
+  }
+
+  // JES2 control statements are read by JES2 before conversion; they never stop the job
+  function doJes2(it){
+    listing.push({no:'',t:it.t});
+    const W=(m)=>errs.push({no:0,m,line:it.line,sev:'W',jes:true});
+    if(!(it.verb in JES2_VERBS)){errs.push({no:0,m:`JCK006W /*${it.verb} IS NOT A JES2 CONTROL STATEMENT. JES2 IGNORES IT`,line:it.line,sev:'H'});return;}
+    const op=it.operand.replace(/\s{2,}.*$/,'');
+    switch(it.verb){
+      case 'JOBPARM':{
+        const pp=parseParams(op.split(/\s/)[0]);
+        for(const[k,v]of Object.entries(pp.kw)){
+          if(!JES2_VERBS.JOBPARM.includes(k)){W(`$HASP119 JOBPARM KEYWORD ${k} IS NOT VALID - IGNORED`);continue;}
+          const K={B:'BYTES',C:'CARDS',N:'COPIES',F:'FORMS',K:'LINECT',L:'LINES',J:'NOLOG',P:'PAGES',PROC:'PROCLIB',E:'RESTART',R:'ROOM',S:'SYSAFF',T:'TIME'}[k]||k;
+          if(['LINES','CARDS','PAGES','BYTES','TIME','COPIES'].includes(K)&&!/^\d{1,6}$/.test(v)){W(`$HASP119 JOBPARM ${K}=${v} IS NOT VALID - IGNORED`);continue;}
+          jes2.jobparm[K]=sub(v)[0];
+        }
+        break;}
+      case 'PRIORITY':
+        if(/^\d{1,2}$/.test(op)&&+op<=15)jes2.priority=+op;else W(`$HASP119 /*PRIORITY ${op} IS NOT VALID - IGNORED`);break;
+      case 'ROUTE':{
+        const m=op.match(/^(PRINT|PUNCH|PRT|PUN|XEQ)\s+(\S+)/);
+        if(!m)W('$HASP119 /*ROUTE OPERAND IS NOT VALID - IGNORED');
+        else if(m[1]==='XEQ')jes2.xeq=m[2];else if(m[1].startsWith('PR'))jes2.route=m[2];
+        break;}
+      case 'MESSAGE':jes2.messages.push(it.operand);break;
+      case 'NOTIFY':if(NAME_RE.test(op))jes2.notify=op;else W('$HASP119 /*NOTIFY USERID IS NOT VALID - IGNORED');break;
+      case 'XEQ':jes2.xeq=op.split(/\s/)[0]||null;break;
+    }
+  }
+
+  const its=readCards(lines);
+  for(let k=0;k<its.length;k++){
+    const it=its[k];
+    if(it.kind==='comment'){listing.push({no:'',t:it.t});continue;}
+    if(it.kind==='jes2'){doJes2(it);continue;}
+    if(it.kind==='null'){listing.push({no:'',t:it.t});break;}
+    if(it.op==='INCLUDE')spliceInclude(its,k,null);
+    const x=its[k];
+    if(x.op==='PROC'){
+      // in-stream procedure definition: list it now, expand it when an EXEC calls it
+      const pno=listRaw(x,x.pfx||'//');
+      if(!x.name||!NAME_RE.test(x.name))errAt(pno,x.line,'IEFC662I INVALID LABEL');
+      const body=[];let ended=false;
+      for(k++;k<its.length;k++){
+        const y=its[k];
+        if(y.kind==='stmt'&&y.op==='PEND'){listRaw(y,y.pfx||'//');ended=true;break;}
+        if((y.kind==='stmt'&&(y.op==='PROC'||y.op==='JOB'))||y.kind==='null'){k--;break;}
+        listRaw(y,y.pfx||'//');body.push(y);
+      }
+      if(!ended)errAt(pno,x.line,`IEFC620I PEND STATEMENT IS MISSING FOR IN-STREAM PROCEDURE ${x.name}`);
+      if(x.name)instream[x.name]={item:x,body};
+      continue;
+    }
+    if(x.op==='PEND'){const st=emit(x,x.pfx||'//',gsym,onG);errAt(st.no,st.line,'IEFC019I MISPLACED PEND STATEMENT');continue;}
+    if(x.op==='JCLLIB'){
+      const st=emit(x,x.pfx||'//',gsym,onG);
+      if(jcllib||sawExec)errAt(st.no,st.line,'IEFC019I MISPLACED JCLLIB STATEMENT');
+      else if(st.p&&st.p.kw.ORDER!==undefined){
+        jcllib=sub(st.p.kw.ORDER).map(unq).filter(Boolean);
+        for(const lib of jcllib)if(!S.catalog[lib]||S.catalog[lib].dsorg!=='PO')errAt(st.no,st.line,`IEFC690I JCLLIB LIBRARY ${lib} WAS NOT FOUND`);
+      }
+      continue;
+    }
+    if(x.op==='EXEC'){
+      sawExec=true;
+      const st=emit(x,x.pfx||'//',gsym,onG);
+      const pname=!st.bad&&st.p&&st.p.kw.PGM===undefined&&!st.balErr?(st.p.kw.PROC||st.p.pos[0]):null;
+      const proc=pname?findProc(pname):null;
+      if(!proc){if(!st.bad)stmts.push(st);continue;}
+      const ovr=[];
+      // overriding / added DD statements follow the EXEC; comments count only if a DD follows them
+      for(;;){
+        let j=k+1;while(j<its.length&&its[j].kind==='comment')j++;
+        if(j<its.length&&its[j].kind==='stmt'&&its[j].op==='DD'){for(let q=k+1;q<=j;q++)ovr.push(its[q]);k=j;}
+        else break;
+      }
+      expandProc(st,proc,ovr,1);
+      continue;
+    }
+    const st=emit(x,x.pfx||'//',gsym,onG);
+    if(st.bad)continue;
+    if(x.op==='SET')applySet(st,null);
+    if(x.op==='EXPORT'&&st.p){const v=st.p.kw.SYMLIST;if(v==='*')Object.keys(gsym).forEach(n=>exported.add(n));else sub(v||'').filter(Boolean).forEach(n=>exported.add(n));}
+    stmts.push(st);
+  }
+  // build the job structure
+  const job={stmt:null,steps:[],outputs:{},joblib:null,schedule:null};let cur=null;const ifs=[];const seen=new Set();
+  const EE=(st,m,sev)=>errs.push({no:st.no,m,line:st.line,sev:sev||'E'});
+  for(const st of stmts){
+    switch(st.op){
+      case 'JOB':job.stmt=st;break;
+      case 'EXEC':{
+        const pgm=st.p.kw.PGM;
+        cur={name:st.name||'',invoker:st.invoker||'',no:st.no,line:st.line,pgm:pgm||'',parm:unq(st.p.kw.PARM),cond:st.p.kw.COND,region:st.p.kw.REGION,ifs:ifs.map(x=>({expr:x.expr,want:!x.inElse})),dds:[],outputs:{}};
+        if(!pgm&&!st.balErr){const pr=st.p.kw.PROC||st.p.pos[0]||'';EE(st,pr?`IEFC612I PROCEDURE ${pr} WAS NOT FOUND`:'IEFC632I INCORRECT FORMAT IN THE PGM FIELD');}
+        const sid=cur.invoker?`${cur.invoker}.${cur.name}`:cur.name;
+        if(st.name&&seen.has(sid))EE(st,`JCK002W STEP NAME ${sid} IS ALSO USED BY AN EARLIER STEP`,'H');
+        if(st.name){seen.add(sid);seen.add(cur.name);}
+        if(cur.invoker)seen.add(cur.invoker);
+        job.steps.push(cur);break;}
+      case 'DD':
+        if(!cur){
+          if(st.name==='JOBLIB')job.joblib=st;
+          else if(st.name!=='JOBCAT')EE(st,'IEFC019I MISPLACED DD STATEMENT');
+        }
+        else if(st.name==='JOBLIB')EE(st,'IEFC019I MISPLACED JOBLIB DD STATEMENT');
+        else{
+          if(st.name&&cur.dds.some(d=>d.name===st.name))EE(st,`JCK003W DDNAME ${st.name} IS DUPLICATED IN STEP ${cur.name||'(NO NAME)'}`,'H');
+          cur.dds.push(st);
+        }
+        break;
+      case 'IF':
+        for(const r of st.refs||[])if(!seen.has(r))EE(st,`IEFC013I ERROR IN IF STATEMENT - STEP ${r} IS NOT DEFINED BEFORE THIS IF`);
+        ifs.push({expr:st.expr,inElse:false,no:st.no,line:st.line});break;
+      case 'ELSE':if(!ifs.length)EE(st,'IEFC013I ELSE STATEMENT WITHOUT IF');else ifs[ifs.length-1].inElse=true;break;
+      case 'ENDIF':if(!ifs.length)EE(st,'IEFC013I ENDIF STATEMENT WITHOUT IF');else ifs.pop();break;
+      case 'OUTPUT':
+        if(!st.name)EE(st,'IEFC662I INVALID LABEL');
+        else(cur?cur.outputs:job.outputs)[st.name]=st.p.kw;
+        break;
+      case 'SCHEDULE':if(cur)EE(st,'IEFC019I MISPLACED SCHEDULE STATEMENT');else job.schedule=st.p.kw;break;
+    }
+  }
+  // references from DD OUTPUT=*.name / *.step.name
+  for(const s of job.steps)for(const d of s.dds){
+    if(d.p.kw.OUTPUT===undefined)continue;
+    for(const r of sub(d.p.kw.OUTPUT).filter(Boolean)){
+      const parts=r.replace(/^\*\./,'').split('.');
+      let ok=false;
+      if(!r.startsWith('*.'))ok=false;
+      else if(parts.length===1)ok=!!(s.outputs[parts[0]]||job.outputs[parts[0]]);
+      else{const t=job.steps.find(x=>x.name===parts[parts.length-2]);ok=!!(t&&t.outputs[parts[parts.length-1]]);}
+      if(!ok)EE(d,`IEFC687I THE OUTPUT STATEMENT REFERENCED BY ${r} WAS NOT FOUND`);
+    }
+  }
+  // JOB-level RESTART= and JOBRC=(STEP,name) must name a real step
+  const stepExists=n=>{const[a,b]=n.split('.');return job.steps.some(s=>b?(s.invoker===a&&s.name===b):(s.name===a||s.invoker===a));};
+  if(job.stmt&&job.stmt.p){
+    const kw=job.stmt.p.kw;
+    if(kw.RESTART!==undefined){const r=sub(kw.RESTART)[0];if(r!=='*'&&!stepExists(r))EE(job.stmt,`IEFC604I RESTART STEP ${r} WAS NOT FOUND`);}
+    if(kw.JOBRC!==undefined){const j=sub(kw.JOBRC);
+      if(j[0]==='STEP'){if(!j[1]||!stepExists(j[1]))EE(job.stmt,`IEFC632I INCORRECT FORMAT IN THE JOBRC FIELD - STEP ${j[1]||''} NOT FOUND`);}
+      else if(!['MAXRC','LASTRC'].includes(j[0]))FMT((m)=>EE(job.stmt,m),'JOBRC');}
+  }
+  if(ifs.length){const x=ifs[ifs.length-1];errs.push({no:x.no,m:'IEFC013I IF STATEMENT HAS NO MATCHING ENDIF',line:x.line,sev:'E'});}
+  if(job.stmt&&!job.steps.length)EE(job.stmt,'IEFC607I JOB HAS NO STEPS');
+  for(const[k,v]of Object.entries(setAt))if(!used.has(k))errs.push({no:v.no,m:`IEFC657I THE SYMBOL ${k} WAS NOT USED`,line:v.line,sev:'W'});
+  errs.sort((a,b)=>a.no-b.no);
+  return {job,listing,errs,cards:lines.length,hasErr:errs.some(e=>e.sev==='E'),jes2};
+}
+
+function evalIf(expr,ctx){
+  const toks=String(expr).toUpperCase().match(/[A-Z@#$][A-Z0-9@#$]*(?:\.[A-Z@#$][A-Z0-9@#$]*)*|\d+|>=|<=|¬=|\^=|¬|\^|=|>|<|\(|\)|&|\|/g)||[];
+  let p=0;const peek=()=>toks[p],next=()=>toks[p++];
+  const CMP={GT:'>',GE:'>=',LT:'<',LE:'<=',EQ:'=',NE:'!=',NG:'<=',NL:'>=','>':'>','<':'<','>=':'>=','<=':'<=','=':'=','¬=':'!=','^=':'!='};
+  function val(t){
+    if(t===undefined)throw new Error('bad');
+    if(/^\d+$/.test(t))return +t;
+    if(t==='TRUE')return true;if(t==='FALSE')return false;
+    const parts=t.split('.'),kw=parts[parts.length-1],sn=parts.length>1?parts.slice(0,-1).join('.'):null;
+    const s=sn?ctx.steps[sn]:null;
+    if(kw==='RC')return sn?(s&&s.rc!=null?s.rc:0):ctx.maxrc;
+    if(kw==='ABEND')return sn?!!(s&&s.abend):ctx.abend;
+    if(kw==='RUN')return sn?!!(s&&s.run):true;
+    if(kw==='ABENDCC')return sn?(s&&s.abendcc)||'':ctx.abendcc||'';
+    if(/^(S[0-9A-F]{3}|U\d{4})$/.test(t))return t; // completion codes such as S806 / U0100
+    throw new Error('bad');
+  }
+  function prim(){
+    const t=next();
+    if(t==='('){const v=or();if(next()!==')')throw new Error('bad');return v;}
+    if(t==='¬'||t==='^'||t==='NOT')return !prim();
+    const v=val(t);
+    if(peek()&&CMP[peek()]){const o=CMP[next()],r=val(next());
+      switch(o){case '>':return v>r;case '>=':return v>=r;case '<':return v<r;case '<=':return v<=r;case '=':return v===r;case '!=':return v!==r;}}
+    return v;
+  }
+  function and(){let v=prim();while(peek()==='&'||peek()==='AND'){next();const r=prim();v=v&&r;}return v;}
+  function or(){let v=and();while(peek()==='|'||peek()==='OR'){next();const r=and();v=v||r;}return v;}
+  const r=or();if(p<toks.length)throw new Error('bad');return !!r;
+}
+
+function condBypass(cond,ctx){
+  if(!cond)return ctx.abend;
+  let items=sub(cond),even=false,only=false,tests=[];
+  if(items.length&&/^\d+$/.test(items[0]))tests=[items];
+  else for(const it of items){if(it==='EVEN')even=true;else if(it==='ONLY')only=true;else tests.push(sub(it));}
+  if(ctx.abend&&!even&&!only)return true;
+  if(!ctx.abend&&only)return true;
+  for(const[code,op,stp]of tests){
+    const rcs=stp?[ctx.steps[stp]&&ctx.steps[stp].rc]:Object.values(ctx.steps).filter(s=>s.run&&!s.abend).map(s=>s.rc);
+    const k=+code;
+    for(const rc of rcs){if(rc==null)continue;
+      if((op==='GT'&&k>rc)||(op==='GE'&&k>=rc)||(op==='EQ'&&k===rc)||(op==='LT'&&k<rc)||(op==='LE'&&k<=rc)||(op==='NE'&&k!==rc))return true;}
+  }
+  return false;
+}
+
+/* ======================================================================
+   DATA SETS
+   ====================================================================== */
+function splitDsn(s){const m=String(s).match(/^([^()]+)(?:\(([^)]+)\))?$/);return m?{dsn:m[1],mem:m[2]||null}:{dsn:s,mem:null};}
+/* GDG: generations are catalog entries named base.GnnnnV00 */
+const GEN_RE=/\.G(\d{4})V(\d{2})$/;
+function gdgGens(base){return Object.keys(S.catalog).filter(n=>n.length===base.length+9&&n.startsWith(base+'.')&&GEN_RE.test(n)).sort();}
+function genName(base,num){return `${base}.G${z(((num-1)%9999+9999)%9999+1,4)}V00`;}
+const todayJ=()=>julian(new Date());
+const unexpired=e=>!!(e&&e.expdt&&e.expdt>todayJ());
+function expdtOf(kw){
+  const lab=kw.LABEL!==undefined?parseParams(sub(kw.LABEL).join(',')).kw:{};
+  const ex=kw.EXPDT||lab.EXPDT,rp=kw.RETPD||lab.RETPD;
+  if(rp!==undefined){const d=new Date();d.setDate(d.getDate()+ +rp);return julian(d);}
+  if(ex!==undefined){if(/^\d{4}\/\d{3}$/.test(ex))return ex.replace('/','');const y=+ex.slice(0,2);return (y<50?'20':'19')+ex;}
+  return null;
+}
+function dsRead(entry,mem){
+  if(entry.dsorg==='PO'){if(!mem)return[];const m=entry.members[mem];return m?m.lines.slice():null;}
+  return (entry.lines||[]).slice();
+}
+function dsWrite(entry,mem,lines,mod){
+  const lrecl=entry.lrecl||80;lines=lines.map(l=>l.slice(0,lrecl));const d=new Date();
+  if(entry.dsorg==='PO'){if(!mem)return false;const old=entry.members[mem];entry.members[mem]={lines,created:old?old.created:ymd(d),changed:stamp(d)};return true;}
+  entry.lines=mod?(entry.lines||[]).concat(lines):lines;return true;
+}
+// model: attributes copied from LIKE=, REFDD= or DCB=*.ref / DCB=dsname; explicit keywords win
+function newEntry(kw,mem,model,vol){
+  const dcb=parseParams(sub(kw.DCB||'').join(','));
+  const sp=sub(kw.SPACE||'');const prim=sub(sp[1]||'');
+  const m=model||{};
+  const po=!!mem||(prim.length>=3&&prim[2]!=='')||(kw.DSORG||dcb.kw.DSORG)==='PO'||kw.DSNTYPE==='LIBRARY'||kw.DSNTYPE==='PDS'||m.dsorg==='PO';
+  const lrecl=kw.LRECL||dcb.kw.LRECL||m.lrecl;
+  const e={dsorg:po?'PO':'PS',recfm:kw.RECFM||dcb.kw.RECFM||m.recfm||'FB',lrecl:+(lrecl||80),blksize:+(kw.BLKSIZE||dcb.kw.BLKSIZE||m.blksize||0),created:ymd(new Date()),vol:vol||VOL,dcbGiven:!!lrecl};
+  const ex=expdtOf(kw);if(ex)e.expdt=ex;
+  if(po)e.members={};else e.lines=[];
+  return e;
+}
+
+/* ======================================================================
+   PROGRAMS
+   ====================================================================== */
+class Abend{constructor(code,reason,log){this.abend=code;this.reason=reason||'00000000';this.log=log||[];}}
+const PROGRAMS={
+  IEFBR14(){return{rc:0};},
+
+  IEBGENER(c){
+    const missing=['SYSPRINT','SYSIN','SYSUT1','SYSUT2'].filter(d=>!c.has(d));
+    if(missing.length){missing.forEach(d=>c.log(`IEC130I ${pad(d,8)} DD STATEMENT MISSING`));return{rc:12};}
+    const out=[padx('DATA SET UTILITY - GENERATE',100)+'PAGE 0001'];
+    const ctl=c.read('SYSIN').filter(l=>l.trim());
+    ctl.forEach(l=>out.push('              '+l));
+    const data=c.read('SYSUT1');
+    const h=c.handle('SYSUT2'),hi=c.handle('SYSUT1');
+    const inL=hi&&hi.type==='ds'?hi.entry.lrecl:80;
+    if(h&&h.type==='ds'&&(!h.isNew||h.entry.dcbGiven)&&/^F/.test(h.entry.recfm)&&h.entry.lrecl!==inL){
+      out.push('-IEB311I CONFLICTING DCB PARAMETERS');c.write('SYSPRINT',out);return{rc:12};}
+    if(h&&h.type==='ds'&&h.isNew&&!h.entry.dcbGiven)out.push('-IEB352I WARNING: ONE OR MORE OF THE OUTPUT DCB PARMS COPIED FROM INPUT');
+    c.write('SYSUT2',data);
+    out.push('',' PROCESSING ENDED AT EOD');
+    c.write('SYSPRINT',out);
+    return{rc:0};
+  },
+
+  SORT(c){
+    const d=new Date(),out=[];
+    const say=l=>out.push(l);
+    const finish=rc=>{if(c.has('SYSOUT'))c.write('SYSOUT',out);return{rc};};
+    const head=` ICE000I 0 - CONTROL STATEMENTS FOR 5650-ZOS, Z/OS DFSORT V2R5  - ${z(d.getHours())}:${z(d.getMinutes())} ON ${DAYS[d.getDay()].slice(0,3)} ${MON[d.getMonth()]} ${z(d.getDate())}, ${d.getFullYear()} -`;
+    if(!c.has('SYSIN')){say(head);say(' ICE010A 0 NO SORT OR MERGE CONTROL STATEMENT');say(' ICE052I 3 END OF DFSORT');return finish(16);}
+    const src=c.read('SYSIN');
+    const echo=[];const stmts=[];let curS='';
+    for(const raw of src){
+      const l=raw.slice(0,71);echo.push(' 0         '+clean(l));
+      if(/^\*/.test(l)||!l.trim())continue;
+      let t=l;
+      if(l[0]!==' '){stmts.push({bad:true,txt:l.trim()});continue;}
+      t=t.trim();
+      const m=t.match(/^(\S+)(?:\s+(\S+))?/);const part=(m[1]||'')+(m[2]?' '+m[2]:'');
+      curS+=(curS?'':'')+part;
+      if(part.endsWith(','))continue;
+      stmts.push({txt:curS});curS='';
+    }
+    if(curS)stmts.push({txt:curS});
+    let copy=false,keys=null,include=null,omit=null,sumNone=false,sumF=null,outrec=null,inrec=null,err=null;
+    for(const s of stmts){
+      if(s.bad){err=' ICE005A 0 STATEMENT DEFINER ERROR';break;}
+      const m=s.txt.match(/^(\S+)\s+(.*)$/);if(!m){err=' ICE005A 0 STATEMENT DEFINER ERROR';break;}
+      const verb=m[1],ps=parseParams(m[2]);
+      if(verb==='SORT'||verb==='MERGE'){
+        const f=ps.kw.FIELDS;if(!f){err=' ICE007A 0 SYNTAX ERROR';break;}
+        if(f==='COPY'){copy=true;continue;}
+        const it=sub(f),fmt=ps.kw.FORMAT;keys=[];
+        let k=0;
+        while(k<it.length){
+          const p=+it[k],l=+it[k+1];let f2,o;
+          if(fmt&&/^[AD]$/.test(it[k+2])){f2=fmt;o=it[k+2];k+=3;}else{f2=it[k+2];o=it[k+3];k+=4;}
+          if(!p||!l||!/^[AD]$/.test(o||'')||!f2){err=' ICE007A 0 SYNTAX ERROR';break;}
+          keys.push({p,l,f:f2,o});
+        }
+        if(err)break;
+      }else if(verb==='OPTION'){if(ps.pos.includes('COPY'))copy=true;}
+      else if(verb==='INCLUDE'||verb==='OMIT'){
+        const cond=ps.kw.COND;if(!cond){err=' ICE007A 0 SYNTAX ERROR';break;}
+        const fn=buildCond(cond);if(!fn){err=' ICE007A 0 SYNTAX ERROR';break;}
+        if(verb==='INCLUDE')include=fn;else omit=fn;
+      }else if(verb==='SUM'){
+        const f=ps.kw.FIELDS;if(f==='NONE'||f==='(NONE)')sumNone=true;
+        else{const it=sub(f);sumF=[];for(let k=0;k+2<it.length+0;k+=3)sumF.push({p:+it[k],l:+it[k+1]});}
+      }else if(verb==='OUTREC'||verb==='INREC'){
+        const b=ps.kw.BUILD||ps.kw.FIELDS;const fn=b&&buildRec(b);if(!fn){err=' ICE007A 0 SYNTAX ERROR';break;}
+        if(verb==='OUTREC')outrec=fn;else inrec=fn;
+      }else if(verb==='END'){break;}
+      else{err=' ICE005A 0 STATEMENT DEFINER ERROR';break;}
+    }
+    if(!err&&!keys&&!copy)err=' ICE010A 0 NO SORT OR MERGE CONTROL STATEMENT';
+    if(err){say(head);echo.forEach(say);say(err);say(' ICE052I 3 END OF DFSORT');return finish(16);}
+    if(!c.has('SORTIN')){say(head);echo.forEach(say);say(' ICE056A 0 SORTIN   NOT DEFINED');say(' ICE052I 3 END OF DFSORT');return finish(16);}
+    if(!c.has('SORTOUT')){say(head);echo.forEach(say);say(' ICE056A 0 SORTOUT  NOT DEFINED');say(' ICE052I 3 END OF DFSORT');return finish(16);}
+    let recs=c.read('SORTIN').map(r=>padx(r,80));
+    const nin=recs.length;
+    if(include)recs=recs.filter(include);
+    if(omit)recs=recs.filter(r=>!omit(r));
+    if(inrec)recs=recs.map(inrec);
+    const keyOf=r=>keys?keys.map(k=>r.substr(k.p-1,k.l)):[];
+    if(keys&&!copy){
+      recs.sort((a,b)=>{for(const k of keys){let x=a.substr(k.p-1,k.l),y=b.substr(k.p-1,k.l);let r;
+        if(k.f==='ZD'||k.f==='PD'||k.f==='FS'){r=(parseFloat(x)||0)-(parseFloat(y)||0);}else r=x<y?-1:x>y?1:0;
+        if(r)return k.o==='D'?-r:r;}return 0;});
+    }
+    if((sumNone||sumF)&&keys){
+      const res=[];
+      for(const r of recs){const last=res[res.length-1];
+        if(last&&keyOf(last).join('\u0000')===keyOf(r).join('\u0000')){
+          if(sumF){let nl=last;for(const f of sumF){const v=(parseInt(last.substr(f.p-1,f.l),10)||0)+(parseInt(r.substr(f.p-1,f.l),10)||0);nl=nl.slice(0,f.p-1)+z(v,f.l).slice(-f.l)+nl.slice(f.p-1+f.l);}res[res.length-1]=nl;}
+        }else res.push(r);}
+      recs=res;
+    }
+    if(outrec)recs=recs.map(outrec);
+    const outl=recs.map(clean);
+    c.write('SORTOUT',outl);
+    say(' ICE143I 0 BLOCKSET     '+(copy?'COPY ':'SORT ')+' TECHNIQUE SELECTED');
+    say(' ICE250I 0 VISIT https://www.ibm.com/docs/en/zos/latest?topic=dfsort FOR DFSORT PAPERS');
+    say(head);echo.forEach(say);
+    say(' ICE201I H RECORD TYPE IS F - DATA STARTS IN POSITION 1');
+    say(` ICE088I 0 ${pad(c.job,8)}.${pad(c.step,8)}.        , INPUT LRECL = 80, BLKSIZE = 27920, TYPE = FB`);
+    say(` ICE054I 0 RECORDS - IN: ${nin}, OUT: ${outl.length}`);
+    if(nin!==outl.length)say(` ICE055I 0 INSERT 0, DELETE ${nin-outl.length}`);
+    say(` ICE134I 0 NUMBER OF BYTES SORTED: ${nin*80}`);
+    say(' ICE052I 0 END OF DFSORT');
+    return finish(0);
+  },
+
+  IDCAMS(c){
+    const d=new Date();
+    const out=[`IDCAMS  SYSTEM SERVICES                                           TIME: ${hms(d,':')}        ${z(d.getMonth()+1)}/${z(d.getDate())}/${String(d.getFullYear()).slice(2)}     PAGE      1`,''];
+    if(!c.has('SYSIN')){c.log('IEC130I SYSIN    DD STATEMENT MISSING');return{rc:16};}
+    const cmds=[];let curr='';
+    for(let l of c.read('SYSIN')){
+      l=l.slice(0,72).replace(/\/\*.*?\*\//g,'');const t=l.trim();if(!t)continue;
+      if(/[-+]$/.test(t)){curr+=t.slice(0,-1)+' ';continue;}
+      curr+=t;cmds.push(curr);curr='';
+    }
+    if(curr.trim())cmds.push(curr);
+    let maxcc=0,lastcc=0;
+    const arg=(cm,...names)=>{for(const n of names){const m=cm.match(new RegExp('\\b'+n+'\\s*\\(\\s*([^)]*?)\\s*\\)'));if(m)return unq(m[1]);}return null;};
+    const has=(cm,...w)=>w.some(x=>new RegExp('\\b'+x+'\\b').test(cm));
+    const resolve=n=>{const{dsn,mem}=splitDsn(n);const e=S.catalog[dsn];return e?{e,dsn,mem}:null;};
+    for(const cm0 of cmds){
+      const cm=cm0.replace(/\s+/g,' ').trim();
+      out.push('  '+cm);
+      const verb=cm.split(/[\s(]/)[0];
+      let cc=0;
+      if(verb==='SET'){
+        const m=cm.match(/(MAXCC|LASTCC)\s*=\s*(\d+)/);if(m){if(m[1]==='MAXCC')maxcc=+m[2];else lastcc=+m[2];}
+        out.push('');continue;
+      }
+      if(verb==='DELETE'||verb==='DEL'){
+        const m=cm.match(/^DEL(?:ETE)?\s+(\([^)]*\)|\S+)/);
+        const names=m?sub(m[1]).join(' ').split(/[\s,]+/).filter(Boolean).map(unq):[];
+        if(!names.length){out.push('IDC3211I KEYWORD DELETE IS IMPROPER');cc=12;}
+        const force=has(cm,'FORCE'),purge=has(cm,'PURGE','PRG');
+        for(const n of names){
+          const r=resolve(n);
+          if(!r||(r.mem&&!(r.e.members&&r.e.members[r.mem]))){
+            out.push(`IDC3012I ENTRY ${n} NOT FOUND`,'IDC3009I ** VSAM CATALOG RETURN CODE IS 8 - REASON CODE IS IGG0CLEG-42',`IDC0551I ** ENTRY ${n} NOT DELETED`);cc=Math.max(cc,8);
+          }else if(r.e.dsorg==='GDG'){
+            const gens=gdgGens(r.dsn);
+            if(gens.length&&!force){out.push('IDC3009I ** VSAM CATALOG RETURN CODE IS 42 - REASON CODE IS IGG0CLEB-6',`IDC0551I ** ENTRY ${r.dsn} NOT DELETED`);cc=Math.max(cc,8);continue;}
+            for(const g of gens){delete S.catalog[g];out.push(`IDC0550I ENTRY (A) ${g} DELETED`);}
+            delete S.catalog[r.dsn];out.push(`IDC0550I ENTRY (B) ${r.dsn} DELETED`);
+          }else if(!r.mem&&unexpired(r.e)&&!purge){
+            out.push(`IDC3023I UNEXPIRED PURGE DATE FOR ENTRY ${r.dsn}`,`IDC0551I ** ENTRY ${r.dsn} NOT DELETED`);cc=Math.max(cc,8);
+          }else{
+            if(r.mem){delete r.e.members[r.mem];out.push(`IDC0550I ENTRY (A) ${n} DELETED`);}
+            else{delete S.catalog[r.dsn];out.push(`IDC0550I ENTRY (A) ${r.dsn} DELETED`);}
+          }
+        }
+      }else if(verb==='DEFINE'||verb==='DEF'){
+        const isGdg=/\b(GENERATIONDATAGROUP|GDG)\b/.test(cm);
+        if(!isGdg){const what=(cm.match(/^DEF(?:INE)?\s+([A-Z]+)/)||[])[1]||'';
+          out.push(`IDC3211I KEYWORD ${what} IS IMPROPER`,'IDC3202I ABOVE TEXT BYPASSED UNTIL NEXT COMMAND. CONDCODE=12','       (THIS SIMULATOR SUPPORTS DEFINE GENERATIONDATAGROUP ONLY)');cc=12;}
+        else{
+          const name=arg(cm,'NAME'),lim=arg(cm,'LIMIT','LIM');
+          if(!name){out.push('IDC3203I REQUIRED PARAMETER NAME IS MISSING');cc=12;}
+          else if(!lim){out.push('IDC3203I REQUIRED PARAMETER LIMIT IS MISSING');cc=12;}
+          else if(!/^\d{1,3}$/.test(lim)||+lim<1||+lim>255){out.push(`IDC3226I VALUE ${lim} FOR LIMIT IS NOT IN THE RANGE 1-255`);cc=12;}
+          else if(name.length>35||!name.split('.').every(q=>/^[A-Z@#$][A-Z0-9@#$-]{0,7}$/.test(q))){out.push(`IDC3201I CONSTANT '${name}' IS NOT VALID FOR A GDG NAME (MAXIMUM 35 CHARACTERS)`);cc=12;}
+          else if(S.catalog[name]){out.push('IDC3013I DUPLICATE DATA SET NAME','IDC3009I ** VSAM CATALOG RETURN CODE IS 8 - REASON CODE IS IGG0CLEH-38');cc=12;}
+          else S.catalog[name]={dsorg:'GDG',limit:+lim,scratch:has(cm,'SCRATCH','SCR')&&!has(cm,'NOSCRATCH','NSCR'),empty:has(cm,'EMPTY','EMP')&&!has(cm,'NOEMPTY','NEMP'),created:ymd(new Date()),vol:''};
+        }
+      }else if(verb==='LISTCAT'||verb==='LISTC'){
+        const lvl=arg(cm,'LEVEL','LVL'),ent=arg(cm,'ENTRIES','ENT'),all=has(cm,'ALL');
+        let names=Object.keys(S.catalog).sort();
+        if(lvl)names=names.filter(n=>n===lvl||n.startsWith(lvl+'.'));
+        if(ent){const want=ent.split(/[\s,]+/).filter(Boolean);names=[];
+          for(const w of want){if(S.catalog[w])names.push(w);else{out.push(`IDC3012I ENTRY ${w} NOT FOUND`,'IDC3009I ** VSAM CATALOG RETURN CODE IS 8 - REASON CODE IS IGG0CLEG-42',`IDC1566I ** ${w} NOT LISTED`);cc=4;}}}
+        const cdate=e=>`${e.created.slice(0,4)}.${z(jday(new Date(e.created)),3)}`;
+        for(const n of names){const e=S.catalog[n];
+          if(e.dsorg==='GDG'){
+            out.push(`GDG BASE ------ ${n}`,'     IN-CAT --- CATALOG.Z31A.USER');
+            if(all){out.push('     HISTORY',`       DATASET-OWNER-----(NULL)     CREATION--------${cdate(e)}`,'     ATTRIBUTES',
+              `       LIMIT-----------------${e.limit}     ${e.scratch?'SCRATCH':'NOSCRATCH'}     ${e.empty?'EMPTY':'NOEMPTY'}`,'     ASSOCIATIONS');
+              const g=gdgGens(n);if(!g.length)out.push('       (NULL)');g.forEach(x=>out.push(`       NONVSAM--${x}`));}
+            continue;
+          }
+          out.push(`NONVSAM ------- ${n}`,'     IN-CAT --- CATALOG.Z31A.USER');
+          if(all){out.push(...[`     HISTORY`,`       DATASET-OWNER-----(NULL)     CREATION--------${cdate(e)}`,
+            `       RELEASE----------------2     EXPIRATION------${e.expdt?e.expdt.slice(0,4)+'.'+e.expdt.slice(4):'0000.000'}`,`     SMSDATA`,`       STORAGECLASS ---STANDARD     MANAGEMENTCLASS---(NULL)`,
+            `     VOLUMES`,`       VOLSER------------${e.vol||VOL}     DEVTYPE------X'3010200F'     FSEQN------------------0`,
+            `     ASSOCIATIONS--------${e.gdg?'':'(NULL)'}`].concat(e.gdg?[`       GDG------${e.gdg}`]:[]).concat([`     ATTRIBUTES`,`       DSORG-------------${e.dsorg}         RECFM-------------${e.recfm}         LRECL------------${e.lrecl}`]));}
+        }
+        if(!ent||names.length){
+          const ng=names.filter(n=>S.catalog[n].dsorg==='GDG').length;
+          out.push('',`          LISTING FROM CATALOG -- CATALOG.Z31A.USER`,'','                   THE NUMBER OF ENTRIES PROCESSED WAS:');
+          for(const[t,v]of[['AIX',0],['ALIAS',0],['CLUSTER',0],['DATA',0],['GDG',ng],['INDEX',0],['NONVSAM',names.length-ng],['PAGESPACE',0],['PATH',0],['SPACE',0],['USERCATALOG',0],['TAPELIBRARY',0],['TAPEVOLUME',0],['TOTAL',names.length]])
+            out.push('                           '+padx(t+' ',22).replace(/ (?= *$)/g,'-').replace(/-$/,'-')+v);
+          out.push('','          THE NUMBER OF PROTECTED ENTRIES SUPPRESSED WAS 0');
+        }
+      }else if(verb==='PRINT'){
+        const ids=arg(cm,'INDATASET','IDS'),ifile=arg(cm,'INFILE','IFILE');
+        let lines=null,label=ids||ifile||'';
+        if(ids){const r=resolve(ids);if(r)lines=dsRead(r.e,r.mem);}
+        else if(ifile&&c.has(ifile))lines=c.read(ifile);
+        if(!lines){out.push(`IDC3012I ENTRY ${label} NOT FOUND`,'IDC3009I ** VSAM CATALOG RETURN CODE IS 8 - REASON CODE IS IGG0CLEG-42');cc=12;}
+        else{out.push(`LISTING OF DATA SET -${label}`,'');lines.forEach((l,k)=>{out.push(`RECORD SEQUENCE NUMBER - ${k+1}`,l,'');});out.push(`IDC0005I NUMBER OF RECORDS PROCESSED WAS ${lines.length}`);}
+      }else if(verb==='REPRO'){
+        const ids=arg(cm,'INDATASET','IDS'),ifile=arg(cm,'INFILE','IFILE'),ods=arg(cm,'OUTDATASET','ODS'),ofile=arg(cm,'OUTFILE','OFILE');
+        let lines=null;
+        if(ids){const r=resolve(ids);if(r)lines=dsRead(r.e,r.mem);}else if(ifile&&c.has(ifile))lines=c.read(ifile);
+        if(!lines){out.push(`IDC3012I ENTRY ${ids||ifile} NOT FOUND`,'IDC3009I ** VSAM CATALOG RETURN CODE IS 8 - REASON CODE IS IGG0CLEG-42');cc=12;}
+        else if(ods){const r=resolve(ods);if(!r){out.push(`IDC3012I ENTRY ${ods} NOT FOUND`,'IDC3009I ** VSAM CATALOG RETURN CODE IS 8 - REASON CODE IS IGG0CLEG-42');cc=12;}else{dsWrite(r.e,r.mem,lines,false);out.push(`IDC0005I NUMBER OF RECORDS PROCESSED WAS ${lines.length}`);}}
+        else if(ofile&&c.has(ofile)){c.write(ofile,lines);out.push(`IDC0005I NUMBER OF RECORDS PROCESSED WAS ${lines.length}`);}
+        else{out.push('IDC3211I KEYWORD OUTDATASET IS IMPROPER');cc=12;}
+      }else{
+        out.push(`IDC3211I KEYWORD ${verb} IS IMPROPER`,'IDC3202I ABOVE TEXT BYPASSED UNTIL NEXT COMMAND. CONDCODE=12');cc=12;
+      }
+      out.push('',`IDC0001I FUNCTION COMPLETED, HIGHEST CONDITION CODE WAS ${cc}`,'');
+      lastcc=cc;maxcc=Math.max(maxcc,cc);
+    }
+    out.push('',`IDC0002I IDCAMS PROCESSING COMPLETE. MAXIMUM CONDITION CODE WAS ${maxcc}`);
+    if(c.has('SYSPRINT'))c.write('SYSPRINT',out);
+    return{rc:maxcc};
+  }
+};
+PROGRAMS.ICEMAN=PROGRAMS.SORT;
+
+function constVal(t){
+  let m;
+  if((m=t.match(/^C'(.*)'$/)))return{s:m[1]};
+  if((m=t.match(/^X'(.*)'$/)))return{s:m[1].replace(/../g,h=>String.fromCharCode(parseInt(h,16)))};
+  if(/^[+-]?\d+$/.test(t))return{n:+t};
+  return null;
+}
+function buildCond(cond){
+  const it=sub(cond);const tests=[];const joins=[];
+  let k=0;
+  while(k<it.length){
+    const p=+it[k],l=+it[k+1],f=it[k+2],op=it[k+3],v=constVal(it[k+4]||'');
+    if(!p||!l||!f||!op||!v)return null;
+    tests.push({p,l,f,op,v});k+=5;
+    if(k<it.length){const j=it[k];if(j!=='AND'&&j!=='OR'&&j!=='&'&&j!=='|')return null;joins.push(j==='&'?'AND':j==='|'?'OR':j);k++;}
+  }
+  const one=(r,t)=>{const x=r.substr(t.p-1,t.l);let a,b;
+    if(t.v.n!=null){a=parseFloat(x)||0;b=t.v.n;}else{a=x;b=padx(t.v.s,t.l).slice(0,t.l);}
+    switch(t.op){case 'EQ':return a===b;case 'NE':return a!==b;case 'GT':return a>b;case 'GE':return a>=b;case 'LT':return a<b;case 'LE':return a<=b;}return false;};
+  return r=>{let v=one(r,tests[0]);for(let j=0;j<joins.length;j++){const n=one(r,tests[j+1]);v=joins[j]==='AND'?v&&n:v||n;}return v;};
+}
+function buildRec(b){
+  const it=sub(b);const parts=[];let k=0;
+  while(k<it.length){
+    const t=it[k];let m;
+    if((m=t.match(/^C'(.*)'$/))){parts.push(()=>m[1]);k++;}
+    else if((m=t.match(/^(\d*)X$/))){const n=+(m[1]||1);parts.push(()=>' '.repeat(n));k++;}
+    else if(/^\d+$/.test(t)&&/^\d+$/.test(it[k+1]||'')){const p=+t,l=+it[k+1];parts.push(r=>r.substr(p-1,l));k+=2;}
+    else return null;
+  }
+  return r=>parts.map(f=>f(padx(r,80))).join('');
+}
+
+/* ======================================================================
+   JOB EXECUTION
+   ====================================================================== */
+function submitDeck(deck){
+  const id='JOB'+z(S.nextJob++,5);
+  const conv=convert(deck.concat(deck.tail||[]));
+  const js=conv.job.stmt;
+  const name=js&&js.name&&NAME_RE.test(js.name)?js.name:(js&&js.name?js.name.slice(0,8):USER+'A');
+  const kw=js&&js.p?js.p.kw:{};
+  const j2=conv.jes2,jp=j2.jobparm;
+  const saff=jp.SYSAFF&&!['*','ANY'].includes(jp.SYSAFF)?jp.SYSAFF:'';
+  const job={id,name,owner:USER,cls:(kw.CLASS||'A').slice(0,1),msgclass:(kw.MSGCLASS||'A').slice(0,1),
+    notify:j2.notify||(kw.NOTIFY?unq(kw.NOTIFY):null),pgmr:js&&js.p?unq(js.p.pos[1]||''):'',queue:'INPUT',maxcc:'',spool:[],submitted:stamp(new Date()),conv,
+    typrun:kw.TYPRUN||'',prty:j2.priority!=null?j2.priority:(kw.PRTY!==undefined?+kw.PRTY:9),saff,deck:deck.slice()};
+  // jobs that wait in the input queue instead of running right away
+  const sch=conv.job.schedule;
+  if(!conv.hasErr&&['HOLD','JCLHOLD'].includes(job.typrun))job.status='HELD';
+  else if(!conv.hasErr&&saff&&saff!==SYSID)job.status='AWAIT '+saff;
+  else if(!conv.hasErr&&sch&&sch.HOLDUNTL){
+    const t=unq(sub(sch.HOLDUNTL)[0]),m=t.match(/^(\+?)(\d{1,2}):(\d{2})$/);
+    if(m){const d=new Date();if(m[1])d.setTime(d.getTime()+((+m[2])*60+(+m[3]))*60000);else d.setHours(+m[2],+m[3],0,0);
+      if(d>new Date()){job.releaseAt=d.getTime();job.status='HOLDUNTL '+z(d.getHours())+':'+z(d.getMinutes());}}
+  }
+  S.jobs.unshift(job);
+  if(S.jobs.length>40)S.jobs.length=40;
+  return job;
+}
+
+function runJob(job){
+  const conv=job.conv;delete job.conv;
+  const d=new Date(),T=()=>hms(new Date());
+  const msglg=[],sysmsg=[],jcl=[],user=[];
+  const ML=m=>msglg.push(`${T()} ${job.id}  ${m}`);
+  let dsid=101;
+  // JESJCL
+  for(const l of conv.listing){
+    if(l.sub)jcl.push('          '+l.t);
+    else jcl.push(lpad(l.no,9)+' '+l.t);
+  }
+  msglg.push('                    J E S 2  J O B  L O G  --  S Y S T E M  '+SYSID.split('').join(' ')+'  --  N O D E  '+NODE.split('').join(' '),'');
+  msglg.push(`${T()} ${job.id} ---- ${DAYS[d.getDay()]}, ${z(d.getDate())} ${MON[d.getMonth()]} ${d.getFullYear()} ----`);
+  ML(`IRR010I  USERID ${pad(USER,8)} IS ASSIGNED TO THIS JOB.`);
+  for(const e of conv.errs)if(e.jes)ML(e.m);
+  for(const m of conv.jes2.messages)ML(`${job.name} ${m}`);
+  let outcome;
+  const jesErrs=conv.errs.filter(e=>e.sev!=='H'&&!e.jes);
+  if(jesErrs.length){sysmsg.push(' STMT NO. MESSAGE');for(const e of jesErrs)sysmsg.push(lpad(e.no,9)+' '+e.m);}
+  if(job.typrun==='COPY'){
+    // TYPRUN=COPY: JES2 prints the job as submitted and does not run it
+    ML(`$HASP396 ${pad(job.name,8)} TERMINATED`);
+    jcl.length=0;job.deck.forEach(l=>jcl.push(l));
+    outcome={type:'scan'};
+  }else if(conv.hasErr){
+    ML(`IEFC452I ${job.name} - JOB NOT RUN - JCL ERROR`);
+    ML(`$HASP396 ${pad(job.name,8)} TERMINATED`);
+    outcome={type:'jcl'};
+  }else if(job.typrun==='SCAN'){
+    ML(`$HASP396 ${pad(job.name,8)} TERMINATED`);
+    outcome={type:'scan'};
+  }else{
+    ML(`ICH70001I ${pad(USER,8)} LAST ACCESS AT ${hms(d,':')} ON ${DAYS[d.getDay()]}, ${MONL[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`);
+    ML(`$HASP373 ${pad(job.name,8)} STARTED - INIT 1    - CLASS ${job.cls}        - SYS ${SYSID}`);
+    ML('-                                      -----TIMINGS (MINS.)------          -----PAGING COUNTS----');
+    ML('-STEPNAME PROCSTEP    RC   EXCP   CONN    TCB    SRB  CLOCK   SERV  WORKLOAD  PAGE  SWAP   VIO SWAPS');
+    outcome=execute(job,conv,{ML,sysmsg,user,nextDsid:()=>dsid++});
+    ML(`-${pad(job.name,8)} ENDED.  NAME-${pad(job.pgmr,20)} TOTAL TCB CPU TIME=      .00 TOTAL ELAPSED TIME=    .00`);
+    if(outcome.type==='abend')ML(`$HASP395 ${pad(job.name,8)} ENDED - ABEND=${outcome.code}`);
+    else if(outcome.type==='alloc'){ML(`IEF453I ${job.name} - JOB FAILED - JCL ERROR - TIME=${T()}`);ML(`$HASP395 ${pad(job.name,8)} ENDED - RC=${rc4(outcome.rc)}`);}
+    else ML(`$HASP395 ${pad(job.name,8)} ENDED - RC=${rc4(outcome.rc)}`);
+    const lim=conv.jes2.jobparm.LINES;
+    const outLines=user.reduce((a,u)=>a+u.lines.length,0);
+    if(lim!==undefined&&outLines>(+lim)*1000)ML(`$HASP375 ${pad(job.name,8)} ESTIMATED  LINES EXCEEDED`);
+  }
+  const printRecs=jcl.length+sysmsg.length+user.reduce((a,u)=>a+u.lines.length,0)+msglg.length+8;
+  msglg.push('------ JES2 JOB STATISTICS ------',
+    `  ${z(d.getDate())} ${MON[d.getMonth()]} ${d.getFullYear()} JOB EXECUTION DATE`,
+    lpad(conv.cards,13)+' CARDS READ',lpad(printRecs,13)+' SYSOUT PRINT RECORDS','            0 SYSOUT PUNCH RECORDS',
+    lpad(Math.max(1,Math.ceil(printRecs*80/1024)),13)+' SYSOUT SPOOL KBYTES','         0.00 MINUTES EXECUTION TIME');
+  // JES data sets follow MSGCLASS, or an OUTPUT statement with JESDS=
+  const jo=Object.values(conv.job.outputs||{}).find(o=>o.JESDS);
+  const jdest=(jo&&jo.DEST)||conv.jes2.route||'LOCAL',jcls=(jo&&jo.CLASS&&jo.CLASS!=='*')?jo.CLASS:job.msgclass;
+  const jes=(dsid,dd,lines)=>({dsid,dd,step:'JES2',lines,cls:jcls,dest:jdest,copies:1});
+  job.spool=[jes(2,'JESMSGLG',msglg),jes(3,'JESJCL',jcl),jes(4,'JESYSMSG',sysmsg)].concat(user);
+  job.queue='PRINT';
+  if(outcome.type==='jcl'||outcome.type==='alloc')job.maxcc='JCL ERROR';
+  else if(outcome.type==='abend')job.maxcc='ABEND '+outcome.code;
+  else if(outcome.type==='scan')job.maxcc='';
+  else job.maxcc='CC '+rc4(outcome.rc);
+  save();
+  if(job.notify){
+    let tail;
+    if(outcome.type==='jcl'||outcome.type==='alloc')tail=' - JCL ERROR';
+    else if(outcome.type==='abend')tail=` - ABENDED  ABEND=${outcome.code} U0000`;
+    else if(outcome.type==='scan')tail='';
+    else tail=`  MAXCC=${rc4(outcome.rc)}`;
+    notify(`${T()} ${job.id} $HASP165 ${pad(job.name,8)} ENDED AT ${NODE}${tail} CN(INTERNAL)`);
+  }
+}
+
+function execute(job,conv,io){
+  const{ML,sysmsg,user,nextDsid}=io;
+  const ctx={maxrc:0,abend:false,steps:{}};
+  const passed={};const tempNames={};const refs={};
+  let abendCode=null,allocFail=false;
+  const d0=new Date();
+  const yy=String(d0.getFullYear()).slice(2),ddd=z(jday(d0),3);
+  const tempDisp=n=>tempNames[n]||(tempNames[n]=`SYS${yy}${ddd}.T${hms(d0,'')}.RA000.${job.name}.${n.replace(/^&&/,'')}.H01`);
+  // job-level controls
+  const jkw=conv.job.stmt&&conv.job.stmt.p?conv.job.stmt.p.kw:{};
+  const jobRegion=jkw.REGION?regionK(jkw.REGION):undefined;
+  let restart=jkw.RESTART?sub(jkw.RESTART)[0]:null;if(restart==='*')restart=null;
+  let jobCondHit=false,lastRc=null;
+  const gdgSnap={};
+  const refOf=(r,sn)=>{const p=r.slice(2).split('.');return refs[p.length>1?p.join('.'):`${sn}.${p[0]}`];};
+  const outStmt=(r,step)=>{const p=r.replace(/^\*\./,'').split('.');
+    if(p.length===1)return step.outputs[p[0]]||conv.job.outputs[p[0]];
+    const t=conv.job.steps.find(x=>x.name===p[p.length-2]);return t&&t.outputs[p[p.length-1]];};
+  for(const step of conv.job.steps){
+    const sn=step.name||'',inv=step.invoker||'';
+    // messages name a procedure step as "procstep stepname"; the step table shows STEPNAME / PROCSTEP
+    const who=inv?`${sn} ${inv}`:sn;
+    const tbl=`${pad(inv||sn,8)} ${pad(inv?sn:'',8)}`;
+    const rec=r=>{ctx.steps[sn]=r;if(inv){ctx.steps[`${inv}.${sn}`]=r;ctx.steps[inv]=r;}};
+    if(allocFail)break;
+    // RESTART= skips every step before the named one
+    if(restart){
+      const hit=restart.includes('.')?`${inv}.${sn}`===restart:(sn===restart&&!inv)||inv===restart;
+      if(!hit)continue;
+      restart=null;
+    }
+    // decide whether this step runs
+    let run;
+    const ifTestsAbend=step.ifs.some(x=>/ABEND/i.test(x.expr));
+    if(jobCondHit)run=false;
+    else if(step.ifs.length){
+      let ok=true;
+      try{for(const x of step.ifs)if(evalIf(x.expr,ctx)!==x.want)ok=false;}catch(e){ok=true;}
+      run=ok&&(!ctx.abend||ifTestsAbend||/EVEN|ONLY/.test(step.cond||''));
+      if(run&&step.cond)run=!condBypass(step.cond,ctx);
+    }else run=!condBypass(step.cond,ctx);
+    if(!run){
+      sysmsg.push(` IEF272I ${job.name} ${who} - STEP WAS NOT EXECUTED.`);
+      ML(`-${tbl} FLUSH      0      0    .00    .00    .00      0  BATCH        0     0     0     0`);
+      rec({run:false});
+      continue;
+    }
+    sysmsg.push(` IEF236I ALLOC. FOR ${job.name} ${who}`);
+    // allocation
+    const handles={};let last=null,fail=null;
+    // DDNAME=x takes its definition from the later DD named x in the same step (or is a dummy)
+    const byName={};for(const d of step.dds)if(d.name)byName[d.name]=d;
+    const consumed=new Set();
+    let ddList=step.dds.map(dd=>{
+      const t=dd.p.kw.DDNAME;if(t===undefined)return dd;
+      const tgt=byName[t];
+      if(tgt&&tgt!==dd){consumed.add(tgt);return Object.assign({},tgt,{name:dd.name});}
+      return Object.assign({},dd,{p:{pos:['DUMMY'],kw:{},dups:[]}});
+    }).filter(d=>!consumed.has(d));
+    // JOBLIB applies to every step that has no STEPLIB
+    if(conv.job.joblib&&!byName.STEPLIB)ddList=[Object.assign({},conv.job.joblib,{name:'JOBLIB'})].concat(ddList);
+    for(const dd of ddList){
+      const p=dd.p,kw=p.kw,ddn=dd.name;
+      let h;
+      if(dd.data){h={type:'instream',lines:dd.data,dsid:nextDsid()};sysmsg.push(` IEF237I JES2 ALLOCATED TO ${ddn||last}`);}
+      else if(p.pos.includes('DUMMY')||kw.DSN==='NULLFILE'||kw.DSNAME==='NULLFILE'){h={type:'dummy'};sysmsg.push(` IEF237I DMY  ALLOCATED TO ${ddn||last}`);}
+      else if(kw.SYSOUT!==undefined){
+        // class / destination / copies come from the DD, its OUTPUT statement, a DEFAULT=YES OUTPUT, or /*ROUTE
+        let os=[];
+        if(kw.OUTPUT!==undefined)os=sub(kw.OUTPUT).filter(Boolean).map(r=>outStmt(r,step)).filter(Boolean);
+        else{os=Object.values(step.outputs).filter(o=>/^Y/.test(o.DEFAULT||''));if(!os.length)os=Object.values(conv.job.outputs).filter(o=>/^Y/.test(o.DEFAULT||''));}
+        const o=os[0]||{};
+        let cls=sub(kw.SYSOUT)[0];
+        if(cls==='*')cls=job.msgclass;else if(!cls)cls=o.CLASS&&o.CLASS!=='*'?o.CLASS:job.msgclass;
+        const dest=kw.DEST||o.DEST||conv.jes2.route||'LOCAL';
+        const copies=+(sub(kw.COPIES||'')[0]||sub(o.COPIES||'')[0]||conv.jes2.jobparm.COPIES||1);
+        h={type:'sysout',lines:[],dsid:nextDsid(),cls,outlim:kw.OUTLIM?+kw.OUTLIM:0};
+        sysmsg.push(` IEF237I JES2 ALLOCATED TO ${ddn||last}`);
+        user.push({dsid:h.dsid,dd:ddn,step:inv||sn,proc:inv?sn:'',lines:h.lines,cls,dest,copies,hold:/^Y/.test(kw.HOLD||'')});
+      }
+      else if(kw.PATH!==undefined){
+        // z/OS UNIX file
+        const path=unq(kw.PATH),opts=sub(kw.PATHOPTS||'');
+        const exists=!!S.zfs[path];
+        if(!exists&&!opts.includes('OCREAT')){sysmsg.push(` IEF212I ${job.name} ${who} ${ddn} - DATA SET NOT FOUND (PATH ${path})`);fail=true;break;}
+        if(exists&&opts.includes('OCREAT')&&opts.includes('OEXCL')){sysmsg.push(` IEF286I ${job.name} ${who} ${ddn} - PATH ${path} ALREADY EXISTS AND PATHOPTS INCLUDES OEXCL`);fail=true;break;}
+        if(!exists)S.zfs[path]={lines:[],mode:sub(kw.PATHMODE||'').join(','),changed:stamp(new Date())};
+        h={type:'path',path,opts,pdisp:sub(kw.PATHDISP||''),created:!exists,dd:ddn};
+        sysmsg.push(` IEF237I PATH ALLOCATED TO ${ddn}`);
+      }
+      else if(!p.pos.filter(Boolean).length&&!Object.keys(kw).length){h={type:'dummy'};sysmsg.push(` IEF237I DMY  ALLOCATED TO ${ddn||last}`);}
+      else{
+        const unit=kw.UNIT&&sub(kw.UNIT)[0];
+        if(unit&&!UNITS.includes(unit)&&!/^AFF=/.test(unit)){sysmsg.push(` IEF210I ${job.name} ${who} ${ddn} - UNIT FIELD SPECIFIES INCORRECT DEVICE NAME`);fail=true;break;}
+        let full=kw.DSN||kw.DSNAME;
+        if(full&&full.startsWith('*.')){
+          const v=refOf(full,sn);
+          if(v)full=v;
+          else{sysmsg.push(` IEF212I ${job.name} ${who} ${ddn} - DATA SET NOT FOUND (BACKWARD REFERENCE ${full})`);fail=true;break;}
+        }
+        if(!full){h={type:'temp',lines:[]};sysmsg.push(` IEF237I VIO  ALLOCATED TO ${ddn}`);}
+        else{
+          let{dsn,mem}=splitDsn(full);
+          const ds=sub(kw.DISP||'');const status=ds[0]||'NEW';
+          const isTemp=dsn.startsWith('&&');
+          // VOL=SER= / VOL=REF=
+          let volser=null;
+          const vk=kw.VOL!==undefined?kw.VOL:kw.VOLUME;
+          if(vk!==undefined){
+            const vp=parseParams(vk.startsWith('(')?sub(vk).join(','):vk).kw;
+            if(vp.SER)volser=sub(vp.SER)[0];
+            else if(vp.REF){const rd=vp.REF.startsWith('*.')?refOf(vp.REF,sn):vp.REF;const re=rd&&S.catalog[splitDsn(rd).dsn];
+              if(!re){sysmsg.push(` IEF212I ${job.name} ${who} ${ddn} - DATA SET NOT FOUND (VOL=REF=${vp.REF})`);fail=true;break;}
+              volser=re.vol||VOL;}
+          }
+          if(volser&&!VOLUMES.includes(volser)){sysmsg.push(` IEF702I ${job.name} ${who} ${ddn} - UNABLE TO ALLOCATE`,`          VOLUME ${volser} IS NOT MOUNTED (AVAILABLE: ${VOLUMES.join(' ')})`);fail=true;break;}
+          // relative generation of a GDG, resolved once per job
+          let gdgBase=null;
+          if(mem&&/^[+-]?\d+$/.test(mem)&&!isTemp){
+            const b=S.catalog[dsn];
+            if(!b||b.dsorg!=='GDG'){sysmsg.push(` IGD07001I GDG BASE ${dsn} WAS NOT FOUND - GENERATION (${mem}) CANNOT BE ALLOCATED`);fail=true;break;}
+            const snap=gdgSnap[dsn]||(gdgSnap[dsn]=gdgGens(dsn));
+            const lastNum=snap.length?+snap[snap.length-1].match(GEN_RE)[1]:0;
+            const n=+mem;gdgBase=dsn;
+            if(n>0)dsn=genName(gdgBase,lastNum+n);
+            else{const g=snap[snap.length-1+n];if(!g){sysmsg.push(` IEF212I ${job.name} ${who} ${ddn} - DATA SET NOT FOUND (${gdgBase}(${mem}))`);fail=true;break;}dsn=g;}
+            mem=null;
+          }
+          const existing=isTemp?passed[dsn]:(passed[dsn]||S.catalog[dsn]);
+          const shown=isTemp?tempDisp(dsn):dsn;
+          if(status==='NEW'||(status==='MOD'&&!existing)){
+            if(existing&&!isTemp){
+              sysmsg.push(` IGD17101I DATA SET ${dsn}`,'  NOT DEFINED BECAUSE DUPLICATE NAME EXISTS IN CATALOG','  RETURN CODE IS 8 REASON CODE IS 38 IGG0CLEH');
+              fail=true;break;
+            }
+            // attributes from LIKE= / REFDD= / DCB=model
+            let model=null;
+            const dcbPos=kw.DCB!==undefined?parseParams(sub(kw.DCB).join(',')).pos[0]:null;
+            const src=kw.LIKE?unq(kw.LIKE):kw.REFDD||dcbPos||null;
+            if(src){const md=src.startsWith('*.')?refOf(src,sn):src;model=md&&S.catalog[splitDsn(md).dsn];
+              if(!model||model.dsorg==='GDG'){sysmsg.push(` IGD17040I MODEL DATA SET ${src} WAS NOT FOUND FOR DDNAME ${ddn}`);fail=true;break;}}
+            const e=newEntry(kw,mem,model,volser);
+            if(gdgBase)e.gdg=gdgBase;
+            h={type:'ds',dsn,shown,mem,entry:e,isNew:true,isTemp,status,disp:ds,dd:ddn,gdgBase};
+            sysmsg.push(` IGD101I SMS ALLOCATED TO DDNAME (${pad(ddn,8)})`,`         DSN (${pad(shown,44)})`,'         STORCLAS (STANDARD) MGMTCLAS (        ) DATACLAS (        )',`         VOL SER NOS= ${e.vol}`);
+          }else{
+            if(!existing){sysmsg.push(` IEF212I ${job.name} ${who} ${ddn} - DATA SET NOT FOUND`);fail=true;break;}
+            if(existing.dsorg==='GDG'){
+              // the base name alone means every generation, newest first
+              const gens=gdgGens(dsn).reverse();
+              if(!gens.length){sysmsg.push(` IEF212I ${job.name} ${who} ${ddn} - DATA SET NOT FOUND (GDG ${dsn} HAS NO GENERATIONS)`);fail=true;break;}
+              const hs=gens.map(g=>({type:'ds',dsn:g,shown:g,mem:null,entry:S.catalog[g],isNew:false,isTemp:false,status,disp:ds,dd:ddn}));
+              h=hs[0];h.concat=hs.slice(1);
+            }else h={type:'ds',dsn,shown,mem,entry:existing,isNew:false,isTemp,status,disp:ds,dd:ddn,volMismatch:!!volser&&(existing.vol||VOL)!==volser,volser};
+            sysmsg.push(` IGD103I SMS ALLOCATED TO DDNAME ${ddn}`);
+          }
+        }
+      }
+      if(!ddn&&last&&handles[last]){(handles[last].concat=handles[last].concat||[]).push(h);}
+      else{handles[ddn]=h;last=ddn;}
+    }
+    if(fail){
+      sysmsg.push(` IEF272I ${job.name} ${who} - STEP WAS NOT EXECUTED.`);
+      ML(`-${tbl}*FLUSH*     0      0    .00    .00    .00      0  BATCH        0     0     0     0`);
+      allocFail=true;rec({run:false});
+      break;
+    }
+    for(const[n,h]of Object.entries(handles))if(h.type==='ds'&&!h.isTemp){
+      const v=h.mem?`${h.dsn}(${h.mem})`:h.dsn;refs[`${sn}.${n}`]=v;if(inv)refs[`${inv}.${sn}.${n}`]=v;}
+    // run the program
+    const logs=[];
+    const volCheck=(x,n)=>{if(x.volMismatch)throw new Abend('S213','00000004',[`IEC143I 213-04,IFG0194A,${job.name},${sn},${n},3390,${x.volser},${x.dsn}`]);};
+    const readH=h=>{let out=[];for(const x of [h].concat(h.concat||[])){
+      if(x.type==='instream'||x.type==='temp')out=out.concat(x.lines);
+      else if(x.type==='path')out=out.concat((S.zfs[x.path]||{lines:[]}).lines);
+      else if(x.type==='ds'){volCheck(x,x.dd);const r=dsRead(x.entry,x.mem);
+        if(r===null)throw new Abend('S013','00000018',[`IEC141I 013-18,IGG0191B,${job.name},${sn},${x.dd||''},,${VOL},${x.dsn}(${x.mem})`]);
+        out=out.concat(r);}
+    }return out;};
+    const cx={job:job.name,step:sn,parm:step.parm,
+      has:n=>!!handles[n],handle:n=>handles[n],
+      read:n=>handles[n]?readH(handles[n]):null,
+      write:(n,lines)=>{const h=handles[n];if(!h)return false;
+        if(h.type==='sysout'){
+          if(h.outlim&&h.lines.length+lines.length>h.outlim){h.lines.push(...lines.slice(0,Math.max(0,h.outlim-h.lines.length)));
+            throw new Abend('S722','00000000',[`OUTPUT LIMIT OF ${h.outlim} RECORDS (OUTLIM) EXCEEDED FOR DDNAME ${n}`]);}
+          h.lines.push(...lines);}
+        else if(h.type==='temp'){h.lines=lines.slice();}
+        else if(h.type==='path'){const f=S.zfs[h.path];if(h.opts.includes('ORDONLY'))throw new Abend('S001','00000004',[`IEC020I 001-4,${job.name},${sn},${n},PATH ${h.path} IS OPEN FOR READ ONLY`]);
+          f.lines=h.opts.includes('OAPPEND')?f.lines.concat(lines):lines.slice();f.changed=stamp(new Date());}
+        else if(h.type==='ds'){volCheck(h,n);if(h.entry.dsorg==='PO'&&!h.mem)throw new Abend('S013','00000014',[`IEC141I 013-14,IGG0191B,${job.name},${sn},${n},,${VOL},${h.dsn}`]);
+          const en=h.entry;
+          if(/^F/.test(en.recfm)&&en.blksize&&en.blksize%en.lrecl)throw new Abend('S013','00000020',[`IEC141I 013-20,IGG0191B,${job.name},${sn},${n},,${VOL},${h.shown}`]);
+          dsWrite(h.entry,h.mem,lines,h.status==='MOD');}
+        return true;},
+      log:m=>logs.push(m)};
+    let res;const pgm=step.pgm;const prog=PROGRAMS[pgm];
+    // REGION: the JOB value overrides the EXEC value; 0K/0M means no limit
+    const reg=jobRegion!==undefined?jobRegion:(step.region?regionK(step.region):null);
+    const need=PGM_STORAGE[pgm]||0;
+    if(!prog)res=new Abend('S806','00000004',[`CSV003I REQUESTED MODULE ${pad(pgm,8)} NOT FOUND`,`CSV028I ABEND806-04  JOBNAME=${pad(job.name,8)}  STEPNAME=${sn}`]);
+    else if(reg&&reg<need)res=new Abend('S80A','00000010',[`IEW4000I FETCH FOR MODULE ${pgm} FAILED - REGION ${reg}K IS SMALLER THAN THE ${need}K THE PROGRAM NEEDS`]);
+    else{try{res=prog(cx);}catch(e){if(e instanceof Abend)res=e;else{console.error(e);res=new Abend('S0C4','00000004');}}}
+    logs.forEach(m=>ML(m));
+    const ab=res instanceof Abend;
+    if(ab){
+      res.log.forEach(m=>ML(m));
+      ML(`IEA995I SYMPTOM DUMP OUTPUT  SYSTEM COMPLETION CODE=${res.abend.slice(1)}  REASON CODE=${res.reason}`);
+      ML(`IEF450I ${job.name} ${who} - ABEND=${res.abend} U0000 REASON=${res.reason}`);
+      sysmsg.push(...res.log.map(m=>' '+m));
+      sysmsg.push(` IEF450I ${job.name} ${who} - ABEND=${res.abend} U0000 REASON=${res.reason}`);
+      ctx.abend=true;ctx.abendcc=res.abend;abendCode=abendCode||res.abend;
+      rec({run:true,abend:true,rc:null,abendcc:res.abend});
+    }else{
+      sysmsg.push(` IEF142I ${job.name} ${who} - STEP WAS EXECUTED - COND CODE ${rc4(res.rc)}`);
+      rec({run:true,abend:false,rc:res.rc});ctx.maxrc=Math.max(ctx.maxrc,res.rc);lastRc=res.rc;
+      // JOB COND: once a test is true, the remaining steps are not run
+      if(jkw.COND&&!jobCondHit&&condBypass(jkw.COND,{steps:{x:{run:true,rc:res.rc}},abend:false})){
+        jobCondHit=true;sysmsg.push(` JOB COND=${jkw.COND} IS SATISFIED BY RC ${rc4(res.rc)} - REMAINING STEPS ARE NOT RUN`);}
+    }
+    // dispositions
+    const all=[];for(const[n,h]of Object.entries(handles)){all.push([n,h]);(h.concat||[]).forEach(x=>all.push([n,x]));}
+    for(const[n,h]of all){
+      if(h.type==='sysout')sysmsg.push(` IEF285I   ${pad(`${USER}.${job.name}.${job.id}.D${z(h.dsid,7)}.?`,44)} SYSOUT`);
+      else if(h.type==='instream')sysmsg.push(` IEF285I   ${pad(`${USER}.${job.name}.${job.id}.D${z(h.dsid,7)}.?`,44)} SYSIN`);
+      else if(h.type==='ds'){
+        let disp=ab?(h.disp[2]||h.disp[1]):h.disp[1];
+        if(!disp)disp=h.isNew?(h.isTemp?'DELETE':'DELETE'):(passed[h.dsn]&&!S.catalog[h.dsn]?'PASS':'KEEP');
+        if(h.isTemp&&(disp==='KEEP'||disp==='CATLG'))disp='PASS';
+        if(disp==='CATLG'||disp==='KEEP'){
+          if(h.isNew)S.catalog[h.dsn]=h.entry;
+          delete passed[h.dsn];
+          sysmsg.push(` IGD104I ${pad(h.shown,44)} RETAINED,  DDNAME=${n}`);
+          // a new generation pushes the oldest ones past LIMIT out of the GDG
+          if(h.isNew&&h.gdgBase){const b=S.catalog[h.gdgBase],gens=gdgGens(h.gdgBase);
+            if(b&&gens.length>b.limit){const off=b.empty?gens.filter(g=>g!==h.dsn):gens.slice(0,gens.length-b.limit);
+              for(const g of off){delete S.catalog[g];sysmsg.push(` IGD107I ${pad(g,44)} ROLLED OFF AND ${b.scratch?'DELETED':'UNCATALOGED'}`);}}}
+        }else if(disp==='PASS'){
+          passed[h.dsn]=h.entry;sysmsg.push(` IEF285I   ${pad(h.shown,44)} PASSED`);
+        }else if(disp==='DELETE'||disp==='UNCATLG'){
+          if(disp==='DELETE'&&!h.isNew&&unexpired(h.entry)){
+            sysmsg.push(` IEF283I   ${pad(h.shown,44)} NOT DELETED   8`,`           EXPIRATION DATE ${h.entry.expdt.slice(0,4)}.${h.entry.expdt.slice(4)} HAS NOT BEEN REACHED`);
+          }else{
+            if(!h.isNew&&S.catalog[h.dsn]===h.entry)delete S.catalog[h.dsn];
+            delete passed[h.dsn];
+            sysmsg.push(` IGD105I ${pad(h.shown,44)} DELETED,   DDNAME=${n}`);
+          }
+        }
+      }
+      else if(h.type==='path'){
+        const pd=(ab?(h.pdisp[1]||h.pdisp[0]):h.pdisp[0])||'KEEP';
+        if(pd==='DELETE'){delete S.zfs[h.path];sysmsg.push(` IEF285I   ${h.path} DELETED`);}
+        else sysmsg.push(` IEF285I   ${h.path} KEPT`);
+      }
+    }
+    const t=new Date();
+    sysmsg.push(` IEF373I STEP/${pad(sn,8)}/START ${julian(t)}.${z(t.getHours())}${z(t.getMinutes())}`,
+      ` IEF032I STEP/${pad(sn,8)}/STOP  ${julian(t)}.${z(t.getHours())}${z(t.getMinutes())}`,
+      '         CPU:     0 HR  00 MIN  00.00 SEC    SRB:     0 HR  00 MIN  00.00 SEC',
+      '         VIRT:    20K  SYS:   252K  EXT:        0K  SYS:    11660K');
+    const rcs=ab?res.abend:lpad(z(res.rc,2),2);
+    ML(`-${tbl} ${lpad(rcs,5)}  ${lpad(10+Object.keys(handles).length*7,5)}    .00    .00    .00    .00  ${lpad(140+Object.keys(handles).length*31,5)}  BATCH        0     0     0     0`);
+  }
+  // passed temporary data sets are deleted at job end
+  for(const n of Object.keys(passed)){if(n.startsWith('&&'))sysmsg.push(` IGD105I ${pad(tempDisp(n),44)} DELETED,   DDNAME=`);}
+  const t=new Date();
+  sysmsg.push(` IEF375I  JOB/${pad(job.name,8)}/START ${julian(d0)}.${z(d0.getHours())}${z(d0.getMinutes())}`,
+    ` IEF033I  JOB/${pad(job.name,8)}/STOP  ${julian(t)}.${z(t.getHours())}${z(t.getMinutes())}`,
+    '         CPU:     0 HR  00 MIN  00.00 SEC    SRB:     0 HR  00 MIN  00.00 SEC');
+  // JOBRC= chooses which return code the job reports
+  const jr=jkw.JOBRC?sub(jkw.JOBRC):['MAXRC'];
+  let finalRc=ctx.maxrc;
+  if(jr[0]==='LASTRC'&&lastRc!=null)finalRc=lastRc;
+  if(jr[0]==='STEP'){const s=ctx.steps[jr[1]];if(s&&s.rc!=null)finalRc=s.rc;}
+  if(allocFail)return{type:'alloc',rc:finalRc};
+  if(abendCode)return{type:'abend',code:abendCode};
+  return{type:'ok',rc:finalRc};
+}
+const PGM_STORAGE={IEFBR14:4,IEBGENER:64,SORT:1024,ICEMAN:1024,IDCAMS:512};
+function regionK(v){const m=String(v).match(/^(\d+)([KM])$/);if(!m)return null;const k=+m[1]*(m[2]==='M'?1024:1);return k===0?null:k;}
+
+/* ======================================================================
+   SCREENS
+   ====================================================================== */
+const term=$('#term'),oia=$('#oia');
+let stack=[];let msg=null;
+const top=()=>stack[stack.length-1];
+const fine=window.matchMedia&&window.matchMedia('(pointer:fine)').matches;
+
+function inp(id,w,val,cls){return `<input class="f${cls?' '+cls:''}" id="${id}" style="width:${w}ch" maxlength="${w}" value="${esc(val||'')}" autocomplete="off" spellcheck="false" autocapitalize="characters">`;}
+function lc(i,w,val){return `<input class="f lc" data-row="${i}" style="width:${w}ch" maxlength="${w}" value="${esc(val||'')}" autocomplete="off" spellcheck="false" autocapitalize="characters">`;}
+function titleLn(left,right){
+  let r=right||'',cls='cw';
+  if(msg&&msg.short){r=msg.short;cls=msg.err?'cr':'cw';}
+  return R(c('cw',pad(left,80-r.length-1))+' '+c(cls,r));
+}
+function longLn(){return msg&&msg.long?R(c(msg.err?'cr':'cw',' '+msg.long)):'';}
+function pfLn(keys){
+  return R(keys.map(([k,t])=>`<span class="pf" data-pf="${k}">${esc(' F'+k+'='+t)}</span>`).join(' '));
+}
+const PF_ISPF=[[1,'Help'],[3,'Exit'],[5,'Rfind'],[7,'Up'],[8,'Down'],[10,'Left'],[11,'Right'],[12,'Cancel']];
+const PF_SDSF=[[1,'HELP'],[3,'END'],[5,'IFIND'],[7,'UP'],[8,'DOWN'],[10,'LEFT'],[11,'RIGHT'],[12,'RETRIEVE']];
+const ISPF_BAR=R(c('cw',' Menu  Utilities  Compilers  Options  Status  Help'))+R(c('cb',' '+'-'.repeat(78)));
+const SDSF_BAR=R(c('cw',' Display  Filter  View  Print  Options  Search  Help'))+R(c('cb',' '+'-'.repeat(78)));
+const EDIT_BAR=R(c('cw','  File  Edit  Edit_Settings  Menu  Utilities  Compilers  Test  Help'))+R(c('cb',' '+'-'.repeat(78)));
+const cmdLn=(label,scroll=true)=>{const w=80-label.length-1-(scroll?17:0);return R(c('cg',label+' ')+inp('cmd',w)+(scroll?c('cg','  Scroll ===> ')+c('ct','CSR'):''));};
+const sdsfCmdLn=()=>R(c('cg','COMMAND INPUT ===> ')+inp('cmd',43)+c('cg','  SCROLL ===> ')+c('ct','CSR'));
+
+const RENDER={
+menu(){
+  const d=new Date();
+  const opts=[['0','Settings','Terminal and user parameters','User ID . : '+USER],
+   ['1','View','Display source data or listings','Time. . . : '+z(d.getHours())+':'+z(d.getMinutes())],
+   ['2','Edit','Create or change source data','Terminal. : 3278'],
+   ['3','Utilities','Perform utility functions','Screen. . : 1'],
+   ['4','Foreground','Interactive language processing','Language. : ENGLISH'],
+   ['5','Batch','Submit job for language processing','Appl ID . : ISR'],
+   ['6','Command','Enter TSO or Workstation commands','TSO logon : IKJACCNT'],
+   ['7','Dialog Test','Perform dialog testing','TSO prefix: '+USER],
+   ['9','IBM Products','IBM program development products','System ID : '+SYSID],
+   ['10','SCLM','SW Configuration Library Manager','MVS acct. : **NONE**'],
+   ['11','Workplace','ISPF Object/Action Workplace','Release . : ISPF 7.6'],
+   ['M','More','Additional IBM Products',''],
+   ['SD','SDSF','System Display and Search Facility','']];
+  let h=ISPF_BAR+titleLn(' '.repeat(28)+'ISPF Primary Option Menu','')+R(c('cg',' Option ===> ')+inp('cmd',66))+longLn()+R('');
+  for(const[k,n,dsc,info]of opts)h+=R(`<span class="pick" data-opt="${k}"> ${c('cw',pad(k,3))}${c('ct',pad(n,13))}</span>${c('cg',pad(dsc,40))}${c('ct',info)}`);
+  h+=R('')+R(c('cg','      Enter ')+c('cw','X')+c('cg',' to Terminate using log/list defaults'));
+  h+=`<div class="body" id="body"></div>`;
+  return h+pfLn(PF_ISPF);
+},
+memlist(sc){
+  const e=S.catalog[sc.dsn];
+  const names=e?Object.keys(e.members).sort():[];
+  const mode=sc.view?'VIEW':'EDIT';
+  let h=ISPF_BAR+titleLn(pad(mode,18)+sc.dsn,`Row ${z(names.length?1:0,5)} of ${z(names.length,5)}`)+cmdLn('Command ===>')+longLn();
+  h+=R(c('cw','           Name     Prompt       Size   Created          Changed          ID'));
+  h+='<div class="body" id="body">';
+  names.forEach((n,i)=>{const m=e.members[n];const pr=(sc.prompt||{})[n]||'';
+    h+=R(lc(i,9,'')+' '+`<span class="pick cy" data-pick="${i}">${esc(pad(n,8))}</span>`+c('cw',' '+pad(pr,10))+c('cg',lpad(m.lines.length,8)+'   '+pad(m.created,10)+'  '+pad(m.changed,19)+'  '+USER));});
+  h+=R(c('cb','  **End**'))+'</div>';
+  sc.rows=names;
+  return h+pfLn(PF_ISPF);
+},
+edit(sc){
+  const label=sc.mem?`${sc.dsn}(${sc.mem})`:sc.dsn;
+  let h=EDIT_BAR+titleLn(` ${sc.view?'VIEW':'EDIT'}       ${label} - 01.00`,'Columns 00001 00072')+cmdLn('Command ===>')+longLn();
+  h+='<div class="body" id="body">';
+  h+=R(c('cr','******')+' '+c('ct',banner('Top of Data',72)));
+  h+=`<div class="edrow"><pre class="gut" id="gut"></pre><textarea id="ed" class="ed" wrap="off" spellcheck="false" autocapitalize="characters" ${sc.view?'readonly':''} aria-label="JCL editor"></textarea></div>`;
+  h+=R(c('cr','******')+' '+c('ct',banner('Bottom of Data',72)));
+  h+='</div>';
+  return h+pfLn(PF_ISPF);
+},
+browse(sc){
+  const sd=sc.sdsf;
+  let h=(sd?SDSF_BAR:ISPF_BAR);
+  if(sd)h+=titleLn(sc.title,`LINE 0       COLUMNS 02- 81`)+sdsfCmdLn();
+  else h+=titleLn(sc.title,`Line 00000000 Col 001 080`)+cmdLn('Command ===>');
+  h+=longLn()+'<div class="body" id="body">';
+  h+=R(c('cw',banner(sd?'TOP OF DATA':'Top of Data',80)));
+  for(const l of sc.lines)h+=R(c(l.cls||'cg',l.t!==undefined?l.t:l));
+  h+=R(c('cw',banner(sd?'BOTTOM OF DATA':'Bottom of Data',80)))+'</div>';
+  return h+pfLn(sd?PF_SDSF:PF_ISPF);
+},
+sdsfmenu(){
+  let h=SDSF_BAR+titleLn('HQX7760 ----------------  SDSF PRIMARY OPTION MENU  ---------------','')+sdsfCmdLn()+longLn()+R('');
+  h+=R(c('cg',' Type an option or command and press Enter.'))+R('');
+  const rows=[['DA','Active users','INIT','Initiators'],['I','Input queue','PR','Printers'],['O','Output queue','PUN','Punches'],['H','Held output queue','RDR','Readers'],['ST','Status of jobs','LINE','Lines'],['','','NODE','Nodes'],['LOG','System log','SO','Spool offload'],['SR','System requests','SP','Spool volumes'],['MAS','Members in the MAS','',''],['JC','Job classes','RM','Resource monitor'],['SE','Scheduling environments','CK','Health checker'],['RES','WLM resources','',''],['ENC','Enclaves','ULOG','User session log'],['PS','Processes','','']];
+  for(const[a,b,x,y]of rows)h+=R(' '+`<span class="pick" data-opt="${a}">${c('cw',pad(a,7))}${c('ct',pad(b,34))}</span>`+`<span class="pick" data-opt="${x}">${c('cw',pad(x,6))}${c('ct',y)}</span>`);
+  h+=R('')+R(c('cg',' Licensed Materials - Property of IBM'));
+  h+='<div class="body" id="body"></div>';
+  return h+pfLn(PF_SDSF);
+},
+st(sc){
+  const filt={ST:()=>true,I:j=>j.queue==='INPUT',DA:j=>j.queue==='EXECUTION',O:j=>j.queue==='PRINT',H:j=>j.queue==='PRINT'}[sc.panel]||(()=>true);
+  const title={ST:'SDSF STATUS DISPLAY ALL CLASSES',I:'SDSF INPUT QUEUE DISPLAY ALL CLASSES',DA:'SDSF DA '+SYSID+' (ALL)  PAG 0  CPU 3',O:'SDSF OUTPUT ALL CLASSES ALL FORMS',H:'SDSF HELD OUTPUT DISPLAY ALL CLASSES'}[sc.panel];
+  const jobs=S.jobs.filter(filt);sc.rows=jobs.map(j=>j.id);
+  let h=SDSF_BAR+titleLn(title,`LINE 1-${jobs.length} (${jobs.length})`)+sdsfCmdLn()+longLn()+R(c('cg',`PREFIX=${USER}*  DEST=(ALL)  OWNER=*  SYSNAME=`))+R('');
+  h+=R(c('cw','NP   JOBNAME  JobID    Owner    Prty Queue      C  Max-RC      SAff ASys Status'));
+  h+='<div class="body" id="body">';
+  jobs.forEach((j,i)=>{
+    const st=j.queue==='EXECUTION'?'ACTIVE':(j.status||'');
+    const prty=j.queue==='PRINT'?1:(j.prty!=null?j.prty:9);
+    h+=R(lc(i,3,'')+'  '+`<span class="pick" data-pick="${i}">${c('ct',pad(j.name,8))}</span>`+c('cg',' '+pad(j.id,8)+' '+pad(j.owner,8)+lpad(prty,5)+' '+pad(j.queue,10)+' '+pad(j.cls,2)+' ')+c(/ABEND|JCL|CANCEL/.test(j.maxcc)?'cr':'cy',pad(j.maxcc,11))+c('cg',' '+pad(j.saff||'',4)+' '+pad(j.queue==='EXECUTION'?SYSID:'',4)+' ')+c(j.status?'cy':'cg',st));
+  });
+  if(!jobs.length)h+=R(c('cb',' No jobs yet. Submit one from the editor with SUB.'));
+  h+='</div>';
+  return h+pfLn(PF_SDSF);
+},
+dd(sc){
+  const j=S.jobs.find(x=>x.id===sc.job);const sp=j?j.spool:[];sc.rows=sp.map(s=>s.dsid);
+  let h=SDSF_BAR+titleLn(`SDSF JOB DATA SET DISPLAY - JOB ${j?j.name:''} (${sc.job})`,`LINE 1-${sp.length} (${sp.length})`)+sdsfCmdLn()+longLn()+R('');
+  h+=R(c('cw','NP   DDNAME   StepName ProcStep DSID Owner    C Dest              Rec-Cnt  CC'));
+  h+='<div class="body" id="body">';
+  sp.forEach((s,i)=>{h+=R(lc(i,3,'')+'  '+`<span class="pick" data-pick="${i}">${c('ct',pad(s.dd,8))}</span>`+c('cg',' '+pad(s.step,8)+' '+pad(s.proc||'',8)+lpad(s.dsid,5)+' '+pad(USER,8)+' '+pad(s.cls||j.msgclass,1)+' '+pad(s.dest||'LOCAL',16)+lpad(s.lines.length,9)+lpad(s.copies||1,4)));});
+  if(!sp.length)h+=R(c('cb',' Job has not finished yet. Press Enter to refresh.'));
+  h+='</div>';
+  return h+pfLn(PF_SDSF);
+},
+dslist(sc){
+  const names=Object.keys(S.catalog).filter(n=>n===sc.level||n.startsWith(sc.level+'.')).sort();sc.rows=names;
+  let h=ISPF_BAR+titleLn(`DSLIST - Data Sets Matching ${sc.level}`,`Row ${names.length?1:0} of ${names.length}`)+cmdLn('Command ===>')+longLn();
+  h+=R('')+R(c('cw','Command - Enter "/" to select action                  Message           Volume'))+R(c('cb','-'.repeat(79)));
+  h+='<div class="body" id="body">';
+  names.forEach((n,i)=>{const e=S.catalog[n];h+=R(lc(i,5,'')+' '+`<span class="pick" data-pick="${i}">${c('ct',pad(n,46))}</span>`+c('cw',pad((sc.prompt||{})[n]||'',18))+c('cg',e.dsorg==='GDG'?'??????':e.vol||VOL));});
+  h+=R(c('cb','***************************** End of Data Set list ****************************'))+'</div>';
+  return h+pfLn(PF_ISPF);
+},
+udlist(sc){
+  const names=Object.keys(S.zfs).filter(p=>p.startsWith(sc.dir)).sort();sc.rows=names;
+  let h=ISPF_BAR+titleLn(' z/OS UNIX Directory List',`Row ${names.length?1:0} of ${names.length}`)+cmdLn('Command ===>')+longLn();
+  h+=R(c('cg','Pathname . : ')+c('cy',sc.dir))+R('')+R(c('cw','Command Filename                                   Size  Changed             Mode'))+R(c('cb','-'.repeat(79)));
+  h+='<div class="body" id="body">';
+  names.forEach((p,i)=>{const f=S.zfs[p];h+=R(lc(i,7,'')+' '+`<span class="pick" data-pick="${i}">${c('ct',padx(p.slice(sc.dir.length)||p,38))}</span>`+c('cg',lpad(f.lines.reduce((a,l)=>a+l.length+1,0),10)+'  '+pad(f.changed||'',19)+' '+(f.mode||'')));});
+  if(!names.length)h+=R(c('cb',' No files. Write one with a DD PATH= statement (see the DDPARMS sample).'));
+  h+='</div>';
+  return h+pfLn(PF_ISPF);
+},
+tso(sc){
+  let h='<div class="body" id="body">';
+  for(const l of sc.lines)h+=R(c(l==='***'?'cw':'cg',l));
+  h+='</div>';
+  return h;
+}
+};
+
+function render(){
+  const sc=top();
+  term.innerHTML=RENDER[sc.id](sc);
+  if(sc.id==='edit')initEditor(sc);
+  const b=$('#body');
+  if(b&&sc.scroll!=null)b.scrollTop=sc.scroll;
+  if(sc.id==='tso'&&b)b.scrollTop=b.scrollHeight;
+  if(fine){const f=(sc.focusEd&&$('#ed'))||$('#cmd');if(f)f.focus({preventScroll:true});}
+  sc.focusEd=false;
+  drawOia();
+}
+function drawOia(busy){
+  const sc=top();
+  oia.textContent=pad(' 4B   '+(busy?'X ()':'    ')+'      '+(sc.id==='tso'?'TSO LINE MODE':'ISPF'),60)+lpad(hms(new Date(),':'),19);
+}
+function push(sc){const b=$('#body');if(b&&top())top().scroll=b.scrollTop;syncEdit();stack.push(sc);}
+function pop(){syncEdit();if(stack.length>1)stack.pop();}
+function setMsg(short,long,err){msg={short,long,err};}
+
+/* ---------- editor ---------- */
+function initEditor(sc){
+  const ed=$('#ed'),gut=$('#gut');
+  ed.value=sc.buf.join('\n');
+  ed.classList.toggle('nocaps',sc.caps===false);
+  let lastN=-1;
+  const upd=()=>{
+    const n=ed.value.split('\n').length;
+    if(lastN>=0&&n!==lastN)sc.marks=null; // line numbers moved, old marks no longer line up
+    lastN=n;let g='';
+    for(let k=0;k<n;k++){const mk=sc.marks&&sc.marks[k];
+      g+=mk?`<span class="${mk==='E'?'cr':'cy'}">${mk==='E'?'==ERR>':'==WRN>'}</span> \n`:z((k+1)*100,6)+' \n';}
+    gut.innerHTML=g;ed.style.height=(n*1.38)+'em';
+  };
+  upd();
+  ed.addEventListener('input',()=>{sc.dirty=true;upd();});
+  if(sc.caret!=null){try{ed.setSelectionRange(sc.caret,sc.caret);}catch(e){}}
+}
+function syncEdit(){
+  const sc=top();if(!sc||sc.id!=='edit')return;
+  const ed=$('#ed');if(!ed)return;
+  sc.buf=(sc.caps===false?ed.value:ed.value.toUpperCase()).split('\n').map(clean);sc.caret=ed.selectionStart;
+}
+function saveEdit(sc){
+  if(sc.view)return;
+  const e=S.catalog[sc.dsn];if(!e)return;
+  dsWrite(e,sc.mem,sc.buf.slice(),false);sc.dirty=false;save();
+}
+function openEdit(dsn,mem,view){
+  const e=S.catalog[dsn];if(!e)return false;
+  const lines=dsRead(e,mem)||[];
+  // like ISPF, data that already has lowercase opens with CAPS OFF
+  const caps=!lines.some(l=>/[a-z]/.test(l));
+  push({id:'edit',dsn,mem,view:!!view,buf:lines.length?lines:[''],dirty:false,caps});
+  if(!caps)setMsg('CAPS OFF','Lowercase data found, so CAPS is OFF. Type CAPS ON to change it.',false);
+  return true;
+}
+
+/* ---------- TSO line-mode messages ---------- */
+let pendingTso=[];
+function showTso(lines){
+  const sc=top();
+  if(sc&&sc.id==='tso'){sc.lines.push(...lines);}
+  else push({id:'tso',lines:lines.slice()});
+  render();
+}
+function notify(line){
+  showTso([line,'***']);
+}
+
+function submit(lines){
+  const decks=splitDecks(lines);
+  if(!decks.length){setMsg('No data','Nothing to submit. The member is empty.',true);return;}
+  const out=[];
+  decks.forEach((deck,k)=>{
+    const job=submitDeck(deck);out.push(`IKJ56250I JOB ${job.name}(${job.id}) SUBMITTED`);
+    startJob(job,k);
+  });
+  out.push('***');save();
+  push({id:'tso',lines:out});
+}
+// run a job unless it is held; a HOLDUNTL job is released at its time
+function startJob(job,k){
+  if(job.status){
+    if(job.releaseAt){const ms=Math.max(0,job.releaseAt-Date.now());
+      if(ms<2**31-1)setTimeout(()=>{if(job.status&&job.queue==='INPUT'){delete job.status;delete job.releaseAt;startJob(job,0);}},ms);}
+    return;
+  }
+  setTimeout(()=>{job.queue='EXECUTION';save();},250+k*500);
+  setTimeout(()=>{runJob(job);},900+k*700+Math.random()*500);
+}
+
+/* ---------- navigation ---------- */
+function jump(opt){
+  opt=opt.replace(/^=/,'');
+  const base=stack[0];stack=[base];
+  return select(opt);
+}
+function select(opt){
+  switch(opt){
+    case '1':push({id:'memlist',dsn:USER+'.JCL',view:true});return true;
+    case '2':push({id:'memlist',dsn:USER+'.JCL'});return true;
+    case '3':case '3.4':push({id:'dslist',level:USER});return true;
+    case '3.17':push({id:'udlist',dir:'/u/user01/'});return true;
+    case 'SD':case 'S':push({id:'sdsfmenu'});return true;
+    case 'SD.ST':case 'SD;ST':push({id:'sdsfmenu'});push({id:'st',panel:'ST'});return true;
+    case 'X':push({id:'tso',lines:['READY','']});top().ready=true;return true;
+    case '':return true;
+    default:setMsg('Invalid option','Options 1, 2, 3.4, 3.17 and SD work in this simulator.',true);return false;
+  }
+}
+
+function lineCmds(){return [...document.querySelectorAll('input.lc')].map(x=>({i:+x.dataset.row,v:x.value.trim().toUpperCase()})).filter(x=>x.v);}
+
+const HANDLE={
+menu(sc,cmd){if(cmd)select(cmd);},
+memlist(sc,cmd){
+  const e=S.catalog[sc.dsn];
+  for(const{i,v}of lineCmds()){
+    const n=sc.rows[i];if(!n)continue;
+    if(v==='S'||v==='E'){openEdit(sc.dsn,n,sc.view);return;}
+    if(v==='B'||v==='V'){browseDs(sc.dsn,n);return;}
+    if(v==='D'){delete e.members[n];save();setMsg('Member deleted','',false);return;}
+    setMsg('Invalid line command','',true);return;
+  }
+  if(cmd){
+    const m=cmd.match(/^(?:S|E|EDIT|SEL)\s+([A-Z@#$][A-Z0-9@#$]{0,7})$/)||cmd.match(/^([A-Z@#$][A-Z0-9@#$]{0,7})$/);
+    if(m&&!['S','E','END','CAN'].includes(cmd)){
+      if(!e.members[m[1]]&&sc.view){setMsg('Member not found','',true);return;}
+      openEdit(sc.dsn,m[1],sc.view);return;
+    }
+    setMsg('Invalid command','',true);
+  }
+},
+edit(sc,cmd){
+  if(!cmd)return;
+  const w=cmd.split(/\s+/)[0];
+  if(w==='SUB'||w==='SUBMIT'){submit(sc.buf);return;}
+  if(w==='SAVE'){if(sc.view){setMsg('Save not allowed','Use EDIT to change this member.',true);return;}saveEdit(sc);setMsg(sc.mem?'Member '+sc.mem+' saved':'Data set saved','',false);return;}
+  if(w==='CAN'||w==='CANCEL'){stack.pop();return;}
+  if(w==='END'){leaveEdit(sc);return;}
+  if(w==='RES'||w==='RESET'){sc.marks=null;return;}
+  if(w==='JCK'||w==='JCLCHECK'){jck(sc);return;}
+  if(w==='CAPS'){const a=cmd.split(/\s+/)[1]||'ON';if(a!=='ON'&&a!=='OFF'){setMsg('Invalid value','Use CAPS ON or CAPS OFF.',true);return;}sc.caps=a==='ON';setMsg('CAPS '+a,'',false);return;}
+  setMsg('Invalid command',`${w} is not supported here. Try SUB, JCK, SAVE, CAPS, CAN or END.`,true);
+},
+browse(sc,cmd){
+  const b=$('#body');if(!b)return;
+  if(cmd==='TOP'||cmd==='M')sc.scroll=0;
+  else if(cmd==='BOT'||cmd==='BOTTOM')sc.scroll=b.scrollHeight;
+  else if(cmd==='ST'||cmd==='H'||cmd==='O'||cmd==='I'||cmd==='DA'){if(sc.sdsf){stack=stack.filter(s=>s.id!=='st'&&s.id!=='dd'&&s.id!=='browse');push({id:'st',panel:cmd});}}
+  else if(cmd)setMsg('Invalid command','',true);
+},
+sdsfmenu(sc,cmd){
+  if(!cmd)return;
+  if(['ST','I','O','H','DA'].includes(cmd)){push({id:'st',panel:cmd});return;}
+  setMsg('COMMAND INVALID','Panels ST, DA, I, O and H work in this simulator.',true);
+},
+st(sc,cmd){
+  for(const{i,v}of lineCmds()){
+    const j=S.jobs.find(x=>x.id===sc.rows[i]);if(!j)continue;
+    if(v==='?'){push({id:'dd',job:j.id});return;}
+    if(v==='S'){openSpool(j,null);return;}
+    if(v==='P'){S.jobs=S.jobs.filter(x=>x!==j);save();continue;}
+    if(v==='A'){ // release a held job
+      if(j.queue!=='INPUT'||!j.status){setMsg('NOT HELD',`${j.name} is not held.`,true);return;}
+      if(/^AWAIT/.test(j.status)){setMsg('NOT RELEASED',`${j.name} waits for system ${j.saff}; this system is ${SYSID}.`,true);return;}
+      delete j.status;delete j.releaseAt;startJob(j,0);setMsg('JOB RELEASED','',false);continue;}
+    if(v==='C'){ // cancel a job that has not run
+      if(j.queue!=='INPUT'){setMsg('NOT CANCELLED',`${j.name} has already run.`,true);return;}
+      delete j.status;delete j.conv;j.queue='PRINT';j.maxcc='CANCELED';
+      j.spool=[{dsid:2,dd:'JESMSGLG',step:'JES2',lines:[`${hms(new Date())} ${j.id}  $HASP890 JOB(${j.name}) CANCELLED BY ${USER}`],cls:j.msgclass,dest:'LOCAL',copies:1}];save();continue;}
+    setMsg('COMMAND INVALID','Use S, ?, A (release), C (cancel) or P (purge).',true);return;
+  }
+  if(['ST','I','O','H','DA'].includes(cmd)){sc.panel=cmd;return;}
+  if(cmd)setMsg('COMMAND INVALID','',true);
+},
+dd(sc,cmd){
+  const j=S.jobs.find(x=>x.id===sc.job);
+  for(const{i,v}of lineCmds()){
+    const s=j&&j.spool[i];if(!s)continue;
+    if(v==='S'){openSpool(j,s);return;}
+    setMsg('COMMAND INVALID','Use S to browse a data set.',true);return;
+  }
+  if(['ST','I','O','H','DA'].includes(cmd)){stack.pop();const t=top();if(t.id==='st')t.panel=cmd;return;}
+  if(cmd)setMsg('COMMAND INVALID','',true);
+},
+dslist(sc,cmd){
+  for(const{i,v}of lineCmds()){
+    const n=sc.rows[i];if(!n)continue;const e=S.catalog[n];
+    sc.prompt=sc.prompt||{};
+    if(e.dsorg==='GDG'){
+      if(v==='D'){if(gdgGens(n).length){setMsg('GDG not empty','Delete the generations first, or use IDCAMS DELETE ... GDG FORCE.',true);return;}
+        delete S.catalog[n];save();setMsg('GDG deleted','',false);return;}
+      const g=gdgGens(n);
+      push({id:'browse',title:` GDG BASE  ${n}`,lines:[` LIMIT ${e.limit}   ${e.scratch?'SCRATCH':'NOSCRATCH'}   ${e.empty?'EMPTY':'NOEMPTY'}`,` ${g.length} GENERATION(S), OLDEST FIRST:`].concat(g.map(x=>'   '+x))});return;
+    }
+    if(v==='D'&&unexpired(e)){setMsg('Not expired',`${n} is protected until ${e.expdt.slice(0,4)}.${e.expdt.slice(4)} (EXPDT/RETPD).`,true);return;}
+    if(v==='E'||v==='S'||v==='M'||v==='/'){sc.prompt[n]=e.dsorg==='PO'?'Member List':'Edited';if(e.dsorg==='PO')push({id:'memlist',dsn:n});else openEdit(n,null);return;}
+    if(v==='B'||v==='V'){sc.prompt[n]='Browsed';if(e.dsorg==='PO')push({id:'memlist',dsn:n,view:true});else browseDs(n,null);return;}
+    if(v==='D'){delete S.catalog[n];save();sc.prompt[n]='';setMsg('Data set deleted',`${n} was deleted.`,false);return;}
+    setMsg('Invalid line command','Use E, B or D.',true);return;
+  }
+  // typing a qualifier such as SYS1 lists the data sets under it
+  if(/^[A-Z@#$][A-Z0-9@#$.]*$/.test(cmd)){sc.level=cmd.replace(/\.+$/,'');sc.prompt={};return;}
+  if(cmd)setMsg('Invalid command','Type a high-level qualifier, for example SYS1.',true);
+},
+udlist(sc,cmd,raw){
+  for(const{i,v}of lineCmds()){
+    const p=sc.rows[i];if(!p)continue;
+    if(v==='B'||v==='S'||v==='V'||v==='E'){push({id:'browse',title:` BROWSE    ${p}`,lines:S.zfs[p].lines.slice()});return;}
+    if(v==='D'){delete S.zfs[p];save();setMsg('File deleted','',false);return;}
+    setMsg('Invalid line command','Use B or D.',true);return;
+  }
+  if(raw&&raw.startsWith('/')){sc.dir=raw.endsWith('/')?raw:raw+'/';return;}
+  if(cmd)setMsg('Invalid command','Type a directory path such as /u/user01/.',true);
+},
+tso(sc,cmd){stack.pop();if(sc.ready){stack=[stack[0]];}}
+};
+
+/* JCK: run the converter on the editor buffer without submitting, then report per line */
+function jck(sc){
+  const notes={},marks={};let ne=0,nw=0;
+  const add=(k,e)=>{(notes[k]=notes[k]||[]).push(e);if(e.sev==='E'){ne++;marks[k]='E';}else{nw++;if(!marks[k])marks[k]='W';}};
+  for(const d of splitDecks(sc.buf)){
+    const cv=convert(d);
+    for(const e of cv.errs)add(Math.max(0,d.start+e.line-(d.gen?1:0)),e);
+    if(d.gen)add(d.start,{m:`JCK001W NO JOB STATEMENT. SUB WILL ADD //${USER}A JOB`,sev:'W'});
+  }
+  sc.buf.forEach((l,k)=>{
+    if(l.startsWith('//')&&!l.startsWith('//*')&&l.length>71&&l.slice(71).trim())add(k,{m:'JCK004W TEXT IN COLUMNS 72-80 IS NOT PART OF THE STATEMENT',sev:'W'});
+  });
+  sc.marks=marks;
+  if(!ne&&!nw){setMsg('No JCL errors','JCK found no problems. Submit with SUB.',false);return;}
+  const label=sc.mem?`${sc.dsn}(${sc.mem})`:sc.dsn;
+  const lines=[{t:` JCL CHECK REPORT FOR ${label}`,cls:'cw'},{t:` ${ne} ERROR(S)   ${nw} WARNING(S)   - F3 RETURNS TO THE EDITOR`,cls:ne?'cr':'cy'},''];
+  sc.buf.forEach((l,k)=>{
+    lines.push({t:z((k+1)*100,6)+' '+l,cls:notes[k]?'cw':'cg'});
+    for(const e of notes[k]||[]){
+      lines.push({t:(e.sev==='E'?'==ERR> ':'==WRN> ')+e.m,cls:e.sev==='E'?'cr':'cy'});
+      if(e.ctx)lines.push({t:'       IN PROCEDURE STATEMENT: '+e.ctx.replace(/\s+/g,' '),cls:'ct'});
+    }
+  });
+  setMsg(ne?`${ne} JCL error${ne>1?'s':''}`:`${nw} warning${nw>1?'s':''}`,'',ne>0);
+  push({id:'browse',title:` JCK       ${label}`,lines});
+}
+
+function browseDs(dsn,mem){
+  const e=S.catalog[dsn];const lines=dsRead(e,mem)||[];
+  push({id:'browse',title:` BROWSE    ${mem?dsn+'('+mem+')':dsn}`,lines});
+}
+function openSpool(j,s){
+  const parts=s?[s]:j.spool;let lines=[];
+  for(const p of parts){
+    const cls=p.dd==='JESYSMSG'||p.dd==='JESMSGLG'?'cg':'cg';
+    for(const l of p.lines){
+      const red=/(IEFC(?!653|657|001|002)\d{3}I|IEF450I|IEF212I|IEF210I|IEB311I|IGD17101I|ABEND|JCL ERROR|NOT FOUND|IEF272I|ICE0\d\dA|IDC3\d{3}I|IEC1\d\dI|CSV0\d\dI)/.test(l);
+      const white=/^\s*(J E S 2|------ JES2|IEF142I|\$HASP|STMT NO\.)/.test(l)||/\$HASP3\d\d/.test(l);
+      lines.push({t:l,cls:red?'cr':white?'cw':p.dd==='JESJCL'?'ct':'cg'});
+    }
+  }
+  if(!lines.length)lines=[{t:' Job has not finished yet.',cls:'cb'}];
+  push({id:'browse',sdsf:true,title:`SDSF OUTPUT DISPLAY ${pad(j.name,8)} ${j.id}  DSID ${lpad(s?s.dsid:2,5)}`,lines});
+}
+function leaveEdit(sc){
+  if(!sc.view&&sc.dirty){saveEdit(sc);}
+  if(!sc.view)saveEdit(sc);
+  stack.pop();
+  const t=top();
+  if(t&&t.id==='memlist'&&sc.mem){t.prompt=t.prompt||{};t.prompt[sc.mem]=sc.view?'*Viewed':'*Edited';if(!sc.view)setMsg('Member '+sc.mem+' saved','',false);}
+}
+
+/* ---------- keys ---------- */
+let busy=false;
+function enter(){
+  if(busy)return;
+  busy=true;drawOia(true);
+  setTimeout(()=>{
+    busy=false;
+    const sc=top();
+    syncEdit();
+    const ci=$('#cmd');const raw=ci?ci.value.trim():'';const cmd=raw.toUpperCase();
+    msg=null;
+    if(cmd.startsWith('=')){jump(cmd.slice(1));}
+    else if(cmd==='SDSF'&&sc.id!=='tso'){push({id:'sdsfmenu'});}
+    else HANDLE[sc.id](sc,cmd,raw);
+    render();
+  },140);
+}
+function pf(n){
+  if(busy)return;
+  const sc=top();
+  if(n===7||n===8){const b=$('#body');if(b){const lh=parseFloat(getComputedStyle(b).fontSize)*1.38;b.scrollTop+=(n===8?1:-1)*(b.clientHeight-lh);}return;}
+  if(n===3||n===12){
+    msg=null;
+    if(sc.id==='tso'){HANDLE.tso(sc,'');render();return;}
+    if(sc.id==='edit'){syncEdit();if(n===3)leaveEdit(sc);else stack.pop();render();return;}
+    if(stack.length>1){pop();render();}
+    else{push({id:'tso',lines:['READY','']});top().ready=true;render();}
+    return;
+  }
+  if(n===1){setMsg('Help','Use the guide beside the screen. Enter runs, F3 goes back.',false);render();return;}
+}
+document.addEventListener('keydown',ev=>{
+  const t=ev.target;
+  const inEd=t&&t.id==='ed';
+  if(ev.key==='Enter'){
+    if(inEd&&!ev.ctrlKey)return;
+    if(t&&t.closest&&t.closest('.guide'))return;
+    ev.preventDefault();enter();return;
+  }
+  const m=/^F(\d{1,2})$/.exec(ev.key);
+  if(m&&[1,3,7,8,12].includes(+m[1])){ev.preventDefault();pf(+m[1]);return;}
+  if(ev.key==='Escape'){ev.preventDefault();pf(3);return;}
+  if(!inEd&&(ev.key==='PageDown'||ev.key==='PageUp')){ev.preventDefault();pf(ev.key==='PageDown'?8:7);}
+});
+term.addEventListener('click',ev=>{
+  const pfE=ev.target.closest('[data-pf]');if(pfE){pf(+pfE.dataset.pf);return;}
+  const opt=ev.target.closest('[data-opt]');
+  if(opt&&opt.dataset.opt){const ci=$('#cmd');if(ci){ci.value=opt.dataset.opt;enter();}return;}
+  const pk=ev.target.closest('[data-pick]');
+  if(pk){const f=document.querySelector(`input.lc[data-row="${pk.dataset.pick}"]`);if(f){f.value=top().id==='st'?'?':top().id==='dslist'?'E':'S';enter();}return;}
+  if(top().id==='tso'){enter();}
+});
+document.querySelector('.keys').addEventListener('mousedown',ev=>{if(ev.target.closest('button'))ev.preventDefault();});
+document.querySelector('.keys').addEventListener('click',ev=>{
+  const b=ev.target.closest('button');if(!b)return;
+  const k=b.dataset.key;if(k==='Enter')enter();else pf(+k.slice(1));
+});
+$('#samples').addEventListener('click',ev=>{
+  const b=ev.target.closest('[data-open]');if(!b)return;
+  const n=b.dataset.open;const e=S.catalog[USER+'.JCL'];
+  if(!e||!e.members[n]){alertMsg(`${n} は削除されています。「初期状態に戻す」で復元できます。`);return;}
+  syncEdit();stack=[stack[0]];msg=null;push({id:'memlist',dsn:USER+'.JCL'});openEdit(USER+'.JCL',n);
+  render();
+  term.scrollIntoView({block:'nearest',behavior:'smooth'});
+});
+function alertMsg(t){setMsg('Not found',t,true);render();}
+const resetBtn=$('#reset');let armed=null;
+resetBtn.addEventListener('click',()=>{
+  if(!armed){resetBtn.textContent='もう一度押すとリセットします';armed=setTimeout(()=>{armed=null;resetBtn.textContent='初期状態に戻す';},3000);return;}
+  clearTimeout(armed);armed=null;resetBtn.textContent='初期状態に戻す';
+  S=defaults();save();boot();
+});
+setInterval(()=>{if(!busy)drawOia();},1000);
+for(const j of S.jobs)if(j.queue==='INPUT'&&j.status&&j.releaseAt)startJob(j,0);
+
+function boot(){
+  stack=[{id:'menu'}];msg=null;
+  push({id:'memlist',dsn:USER+'.JCL'});
+  const e=S.catalog[USER+'.JCL'];
+  if(e&&e.members.HELLO){openEdit(USER+'.JCL','HELLO');setMsg('','Type SUB on the command line and press Enter to submit this job.',false);msg.short='';}
+  render();
+}
+boot();
+})();
+</script>
+</body>
+</html>

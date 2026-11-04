@@ -1,0 +1,13 @@
+# OS が自動で作るファイル
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# エディタの設定・一時ファイル
+.vscode/
+.idea/
+*.swp
+*~
+
+# ローカル用の設定
+.claude/
