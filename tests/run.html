@@ -54,6 +54,14 @@ document.getElementById('app').addEventListener('load',()=>{
     pass?ok++:ng++;
     rows.push({c,pass,j,text,miss,ccOk,err});
   }
+  // exercises: every sample answer must pass and every starting member must fail
+  for(const e of T.exercises()){
+    const start=e.start||[`//${e.id.padEnd(8)} JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X`,'//* EMPTY'];
+    for(const[kind,lines,want]of[['解答例は合格する',e.answer,true],['書き始めの状態は不合格',start,false]]){
+      const g=T.grade(e.id,lines),pass=g.pass===want;pass?ok++:ng++;
+      rows.push({c:{id:e.id,t:`演習 ${e.id}: ${kind}`,deck:lines,maxcc:/./},pass,j:null,text:g.items.map(x=>(x.ok?'✓ ':'✗ ')+x.label).join('\n')+'\n'+g.notes.join('\n'),miss:[],ccOk:true,err:null});
+    }
+  }
   const naCount=Object.values(NA).reduce((a,v)=>a+v.length,0);
   document.getElementById('sum').innerHTML=`<span>テスト <b>${CASES.length}</b> 件</span><span class="ok">成功 <b>${ok}</b></span><span class="ng">失敗 <b>${ng}</b></span><span class="na">対象外 <b>${naCount}</b> 件</span>`;
   const draw=()=>{

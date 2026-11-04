@@ -84,6 +84,16 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
 .samples span{color:var(--ink-soft);font-size:13px;line-height:1.5}
 .samples button{font-size:12px;background:none;border:1px solid var(--line);color:var(--accent);border-radius:4px;padding:1px 8px;cursor:pointer;font-family:var(--sans)}
 .samples button:hover{border-color:var(--accent)}
+.exlist .ok{color:var(--accent);font-size:12px;white-space:nowrap}
+.excard{margin-top:12px;padding:12px 14px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.excard h3{margin:0 0 4px;font-size:15px}
+.excard ol{margin:6px 0 8px}
+.excard pre{font-family:var(--mono);font-size:12.5px;margin:4px 0;padding:4px 8px;background:var(--bezel);border-radius:4px;white-space:pre-wrap}
+.excard .row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.excard .res li{list-style:none;margin-left:-1.2em}
+.excard .pass{color:#1f7a3a}.excard .fail{color:#b42318}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .excard .pass{color:#5cc47e}:root:not([data-theme="light"]) .excard .fail{color:#ff8a7a}}
+:root[data-theme="dark"] .excard .pass{color:#5cc47e}:root[data-theme="dark"] .excard .fail{color:#ff8a7a}
 .keytbl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;font-size:13px}
 .keytbl code,.keytbl kbd{white-space:normal;overflow-wrap:anywhere}
 @media (max-width:1179px){.guide{justify-self:stretch;max-width:min(62ch,100%)}}
@@ -190,6 +200,11 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
       <li><b>SCHED</b><span>SCHEDULE HOLDUNTL で1分後に実行</span><button data-open="SCHED">開く</button></li>
       <li><b>EXPORT</b><span>EXPORT と SYMBOLS=EXECSYS</span><button data-open="EXPORT">開く</button></li>
     </ul>
+
+    <h2>演習：要件から JCL を書く</h2>
+    <p>要件（仕様）を読んで JCL を書き、自動で採点します。「始める」を押すと、メンバー <code>EXnn</code> が開きます。書いたら下の「採点する」か、コマンド行に <kbd>GRADE</kbd>（この端末独自のコマンド）。採点は、あなたのデータセットに触れない別の環境で毎回まっさらな状態から流します。</p>
+    <ul class="samples exlist" id="exlist"></ul>
+    <div class="excard" id="excard" hidden></div>
 
     <h2>その他の機能</h2>
     <div class="keytbl">
@@ -655,7 +670,9 @@ const TESTMODE=/[?&]test\b/.test(location.search);
 let S;
 try{S=TESTMODE?null:JSON.parse(localStorage.getItem(LSKEY)||'null');}catch(e){S=null;}
 if(!S||S.v!==1||!S.catalog) S=defaults();
-function save(){if(TESTMODE)return;try{localStorage.setItem(LSKEY,JSON.stringify(S));}catch(e){}}
+// sandbox: grading runs a job against a throwaway catalog; nothing is saved, logged or notified
+let sandbox=false;
+function save(){if(TESTMODE||sandbox)return;try{localStorage.setItem(LSKEY,JSON.stringify(S));}catch(e){}}
 // add samples introduced after this browser first saved its data
 if(!S.seen)S.seen=['HELLO','ALLOC','SORT','IFTEST','CLEANUP','BADJCL','ABEND'];
 {const lib=S.catalog[USER+'.JCL'],d=new Date();
@@ -1840,7 +1857,7 @@ function runJob(job){
   else if(outcome.type==='scan')job.maxcc='';
   else job.maxcc='CC '+rc4(outcome.rc);
   save();
-  if(job.notify){
+  if(job.notify&&!sandbox){
     let tail;
     if(outcome.type==='jcl'||outcome.type==='alloc')tail=' - JCL ERROR';
     else if(outcome.type==='abend')tail=` - ABENDED  ABEND=${outcome.code} U0000`;
@@ -2696,6 +2713,7 @@ function edChange(sc,from,to,how,cur){
 const ulog=[],syslog=[];
 let sdsfInfo=null,cmdSeq=100;
 function logRec(type,who,text,toUlog){
+  if(sandbox)return;
   const d=new Date(),t=`${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}.${z(Math.floor(d.getMilliseconds()/10))}`;
   const l=`${pad(type,2)}0000000 ${pad(SYSID,8)} ${String(d.getFullYear()).slice(2)}${z(jday(d),3)} ${t} ${pad(who,8)} 00000290  ${text}`;
   syslog.push(l);if(syslog.length>2000)syslog.shift();
@@ -2771,6 +2789,142 @@ function jes2Command(c){
     save();return out;
   }
   return[`$HASP003 RC=(03),${c.split(/[\s,(']/)[0]} - INVALID PARAMETER STATEMENT`];
+}
+
+/* ---------- exercises: requirements -> JCL, graded automatically ---------- */
+const JOBCARD=n=>`//${pad(n,8)} JOB (ACCT),'${USER}',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID`;
+const SCORES=['SATO      072','SUZUKI    095','TAKAHASHI 060','TANAKA    088','ITO       095','KATO      081'];
+const psEntry=lines=>({dsorg:'PS',recfm:'FB',lrecl:80,blksize:27920,created:ymd(new Date()),vol:VOL,lines:lines.slice()});
+// run JCL against a fresh catalog with the exercise's input data; the user's own data is never touched
+function runSandbox(setup,lines){
+  const saved=S;sandbox=true;
+  try{
+    S=defaults();S.zfs={};if(setup)setup(S);
+    const jobs=splitDecks(lines).map(d=>{const j=submitDeck(d);if(!j.status)runJob(j);
+      j.steps=convert(d.concat(d.tail||[])).job.steps;return j;});
+    return{st:S,jobs,job:jobs[0]};
+  }finally{S=saved;sandbox=false;}
+}
+const userOut=j=>j?j.spool.filter(s=>!['JESMSGLG','JESJCL','JESYSMSG'].includes(s.dd)):[];
+const sameLines=(a,b)=>!!a&&a.length===b.length&&a.every((l,k)=>clean(l)===b[k]);
+const anyOut=(r,want)=>userOut(r.job).some(s=>sameLines(s.lines,want));
+const okCC=r=>!!r.job&&r.job.maxcc==='CC 0000';
+const notFailed=r=>!!r.job&&!/JCL ERROR|ABEND/.test(r.job.maxcc||'');
+const usesPgm=(r,...p)=>!!r.job&&r.job.steps.some(s=>p.includes(s.pgm));
+const dsLines=(r,n,m)=>{const e=r.st.catalog[n];return e?dsRead(e,m||null):null;};
+// the first error a learner should look at, taken from the job output
+function firstProblem(j){
+  if(!j)return 'ジョブがありません。JOB 文から書いてください。';
+  const t=j.spool.map(s=>s.lines.join('\n')).join('\n').split('\n');
+  const l=t.find(x=>/(IEFC\d{3}I(?! PROCEDURE| INCLUDE)|IEF(212|210|127|272|645|453)I|IGD17101I|\$HASP11\d|CSV003I|IEC1\d\dI|IEB311I|IEC130I|ICE0\d\dA|IDC3\d{3}I)/.test(x));
+  return `結果は ${j.maxcc||'(未実行)'}。${l?'最初の問題: '+l.trim():''}`;
+}
+const EXERCISES=[
+{id:'EX01',level:'入門',title:'はじめてのジョブ',
+ brief:'決められた2行を SYSOUT（ジョブの出力）に書き出すジョブを作ります。',
+ req:['ジョブ名は EX01','プログラム IEBGENER を使う','インストリームデータ（DD *）の次の2行を、SYSOUT=* に出力する<pre>HELLO, Z/OS\nJCL PRACTICE 01</pre>','ジョブは CC 0000 で終わる'],
+ hint:'IEBGENER は SYSPRINT・SYSIN・SYSUT1（入力）・SYSUT2（出力）の4つの DD を使います。SYSIN は DUMMY で構いません。サンプルの HELLO が参考になります。',
+ runs:[{}],
+ checks:[['ジョブ名が EX01',([r])=>!!r.job&&r.job.name==='EX01'],['IEBGENER を使っている',([r])=>usesPgm(r,'IEBGENER')],
+   ['SYSOUT に指定の2行がそのまま出ている',([r])=>anyOut(r,['HELLO, Z/OS','JCL PRACTICE 01'])],['CC 0000 で終わる',([r])=>okCC(r)]],
+ answer:[JOBCARD('EX01'),'//STEP1    EXEC PGM=IEBGENER','//SYSPRINT DD SYSOUT=*','//SYSIN    DD DUMMY','//SYSUT1   DD *','HELLO, Z/OS','JCL PRACTICE 01','/*','//SYSUT2   DD SYSOUT=*']},
+{id:'EX02',level:'入門',title:'データセットを作る',
+ brief:'新しい順次データセットを作り、データを書き込んでカタログに登録します。',
+ req:['順次データセット USER01.EX02.DATA を新規作成してカタログする','属性は RECFM=FB、LRECL=80','中身は次の3行<pre>APPLE\nBANANA\nCHERRY</pre>','ジョブは CC 0000 で終わる'],
+ hint:'出力側の DD に DISP=(NEW,CATLG,DELETE)、SPACE=、DCB=(RECFM=FB,LRECL=80) を書きます。採点は毎回まっさらな状態で行うので、何度でも採点できます。',
+ runs:[{}],
+ checks:[['USER01.EX02.DATA がカタログされている',([r])=>!!r.st.catalog['USER01.EX02.DATA']],
+   ['順次データセット（PS）で RECFM=FB・LRECL=80',([r])=>{const e=r.st.catalog['USER01.EX02.DATA'];return !!e&&e.dsorg==='PS'&&/^FB/.test(e.recfm)&&e.lrecl===80;}],
+   ['中身が APPLE / BANANA / CHERRY の3行',([r])=>sameLines(dsLines(r,'USER01.EX02.DATA'),['APPLE','BANANA','CHERRY'])],['CC 0000 で終わる',([r])=>okCC(r)]],
+ answer:[JOBCARD('EX02'),'//STEP1    EXEC PGM=IEBGENER','//SYSPRINT DD SYSOUT=*','//SYSIN    DD DUMMY','//SYSUT1   DD *','APPLE','BANANA','CHERRY','/*','//SYSUT2   DD DSN=USER01.EX02.DATA,DISP=(NEW,CATLG,DELETE),','//            SPACE=(TRK,(1,1)),DCB=(RECFM=FB,LRECL=80)']},
+{id:'EX03',level:'初級',title:'ライブラリーとメンバー',
+ brief:'区分データセット（PDS）を作り、2つのメンバーに書き込みます。',
+ req:['区分データセット USER01.EX03.LIB を作ってカタログする（RECFM=FB、LRECL=80）','メンバー README に1行 <code>THIS IS EX03</code>','メンバー DATA に2行 <code>LINE 1</code>・<code>LINE 2</code>','1つのジョブで行い、CC 0000 で終わる'],
+ hint:'PDS は SPACE の3つ目（ディレクトリー・ブロック数）を指定すると作れます。例: SPACE=(TRK,(5,5,5))。作成は IEFBR14、書き込みは IEBGENER で DSN=USER01.EX03.LIB(README),DISP=SHR のようにメンバーを指定します。',
+ runs:[{}],
+ checks:[['USER01.EX03.LIB が PDS としてカタログされている',([r])=>{const e=r.st.catalog['USER01.EX03.LIB'];return !!e&&e.dsorg==='PO';}],
+   ['README の中身が THIS IS EX03',([r])=>sameLines(dsLines(r,'USER01.EX03.LIB','README'),['THIS IS EX03'])],
+   ['DATA の中身が LINE 1 / LINE 2',([r])=>sameLines(dsLines(r,'USER01.EX03.LIB','DATA'),['LINE 1','LINE 2'])],
+   ['ジョブは1つで、CC 0000 で終わる',([r])=>r.jobs.length===1&&okCC(r)]],
+ answer:[JOBCARD('EX03'),'//ALLOC    EXEC PGM=IEFBR14','//LIB      DD DSN=USER01.EX03.LIB,DISP=(NEW,CATLG,DELETE),','//            SPACE=(TRK,(5,5,5)),DCB=(RECFM=FB,LRECL=80)',
+   '//README   EXEC PGM=IEBGENER','//SYSPRINT DD SYSOUT=*','//SYSIN    DD DUMMY','//SYSUT1   DD *','THIS IS EX03','/*','//SYSUT2   DD DSN=USER01.EX03.LIB(README),DISP=SHR',
+   '//DATA     EXEC PGM=IEBGENER','//SYSPRINT DD SYSOUT=*','//SYSIN    DD DUMMY','//SYSUT1   DD *','LINE 1','LINE 2','/*','//SYSUT2   DD DSN=USER01.EX03.LIB(DATA),DISP=SHR']},
+{id:'EX04',level:'初級',title:'成績を並べ替える',
+ brief:'用意された成績データを、点数の高い順に並べ替えて新しいデータセットに保存します。',
+ data:{'USER01.EX04.SCORES':SCORES},
+ req:['入力は USER01.EX04.SCORES（1〜10桁目が名前、11〜13桁目が3桁の点数）','DFSORT（PGM=SORT）を使う','点数の高い順。同点なら名前の昇順','結果を新しいデータセット USER01.EX04.RANKING（RECFM=FB、LRECL=80）にカタログして保存','入力データセットは変更しない。CC 0000 で終わる'],
+ hint:'SORT FIELDS=(開始桁,長さ,形式,順序,…) で並べ替えます。点数は ZD（数字）、名前は CH（文字）、降順は D、昇順は A。DFSORT の制御文は1桁目を空けて書きます。',
+ setup:s=>{s.catalog['USER01.EX04.SCORES']=psEntry(SCORES);},runs:[{}],
+ checks:[['DFSORT を使っている',([r])=>usesPgm(r,'SORT','ICEMAN')],
+   ['USER01.EX04.RANKING が FB・80 でカタログされている',([r])=>{const e=r.st.catalog['USER01.EX04.RANKING'];return !!e&&/^FB/.test(e.recfm)&&e.lrecl===80;}],
+   ['点数の高い順（同点は名前順）に並んでいる',([r])=>sameLines(dsLines(r,'USER01.EX04.RANKING'),['ITO       095','SUZUKI    095','TANAKA    088','KATO      081','SATO      072','TAKAHASHI 060'])],
+   ['入力が変わっていない',([r])=>sameLines(dsLines(r,'USER01.EX04.SCORES'),SCORES)],['CC 0000 で終わる',([r])=>okCC(r)]],
+ answer:[JOBCARD('EX04'),'//SORT1    EXEC PGM=SORT','//SYSOUT   DD SYSOUT=*','//SORTIN   DD DSN=USER01.EX04.SCORES,DISP=SHR','//SORTOUT  DD DSN=USER01.EX04.RANKING,DISP=(NEW,CATLG,DELETE),','//            SPACE=(TRK,(1,1)),DCB=(RECFM=FB,LRECL=80)','//SYSIN    DD *','  SORT FIELDS=(11,3,ZD,D,1,10,CH,A)','/*']},
+{id:'EX05',level:'初級',title:'条件に合う行を取り出す',
+ brief:'成績データから合格者（80点以上）だけを取り出して表示します。',
+ data:{'USER01.EX05.SCORES':SCORES},
+ req:['入力は USER01.EX05.SCORES（形式は EX04 と同じ）','点数が 080 以上の行だけを取り出す','並べ替えはせず、元の順番のまま','結果は SORTOUT として SYSOUT=* に出力','DFSORT を使い、CC 0000 で終わる'],
+ hint:'並べ替えずにコピーするには SORT FIELDS=COPY。行を選ぶには INCLUDE COND=(開始桁,長さ,形式,比較,値)。比較は GE（以上）など。',
+ setup:s=>{s.catalog['USER01.EX05.SCORES']=psEntry(SCORES);},runs:[{}],
+ checks:[['DFSORT を使っている',([r])=>usesPgm(r,'SORT','ICEMAN')],
+   ['80点以上の4行が元の順番で出ている',([r])=>anyOut(r,['SUZUKI    095','TANAKA    088','ITO       095','KATO      081'])],['CC 0000 で終わる',([r])=>okCC(r)]],
+ answer:[JOBCARD('EX05'),'//PICK     EXEC PGM=SORT','//SYSOUT   DD SYSOUT=*','//SORTIN   DD DSN=USER01.EX05.SCORES,DISP=SHR','//SORTOUT  DD SYSOUT=*','//SYSIN    DD *','  SORT FIELDS=COPY','  INCLUDE COND=(11,3,ZD,GE,80)','/*']},
+{id:'EX06',level:'中級',title:'あるときだけ処理する',
+ brief:'入力データセットがあればその中身を表示し、なければメッセージを出すジョブを作ります。採点では「ある場合」と「ない場合」の両方で流します。',
+ req:['最初のステップで IDCAMS の LISTCAT ENTRIES(USER01.EX06.INPUT) を実行して、入力があるか調べる','入力がある（そのステップの RC が 0）なら、USER01.EX06.INPUT の中身を SYSOUT=* に出力','入力がない（RC が 0 以外）なら、1行 <code>INPUT NOT FOUND</code> を SYSOUT=* に出力','どちらの場合も JCL エラーや ABEND にならない'],
+ hint:'IF (ステップ名.RC = 0) THEN … ELSE … ENDIF でステップを選べます。実行されないステップの DD は割り振られないので、ない入力を書いていても JCL エラーになりません。',
+ data:{'USER01.EX06.INPUT':['DATA 1','DATA 2']},
+ runs:[{label:'入力あり',setup:s=>{s.catalog['USER01.EX06.INPUT']=psEntry(['DATA 1','DATA 2']);}},{label:'入力なし'}],
+ checks:[['入力ありのとき: 中身（DATA 1 / DATA 2）が出ている',([a])=>anyOut(a,['DATA 1','DATA 2'])],['入力ありのとき: INPUT NOT FOUND は出ていない',([a])=>!anyOut(a,['INPUT NOT FOUND'])],
+   ['入力なしのとき: INPUT NOT FOUND が出ている',([,b])=>anyOut(b,['INPUT NOT FOUND'])],['どちらも JCL エラーや ABEND にならない',([a,b])=>notFailed(a)&&notFailed(b)],['IDCAMS で調べている',([a])=>usesPgm(a,'IDCAMS')]],
+ answer:[JOBCARD('EX06'),'//CHECK    EXEC PGM=IDCAMS','//SYSPRINT DD SYSOUT=*','//SYSIN    DD *','  LISTCAT ENTRIES(USER01.EX06.INPUT)','/*','// IF (CHECK.RC = 0) THEN','//PRINT    EXEC PGM=IEBGENER','//SYSPRINT DD SYSOUT=*','//SYSIN    DD DUMMY','//SYSUT1   DD DSN=USER01.EX06.INPUT,DISP=SHR','//SYSUT2   DD SYSOUT=*','// ELSE','//NOTFOUND EXEC PGM=IEBGENER','//SYSPRINT DD SYSOUT=*','//SYSIN    DD DUMMY','//SYSUT1   DD *','INPUT NOT FOUND','/*','//SYSUT2   DD SYSOUT=*','// ENDIF']},
+{id:'EX07',level:'中級',title:'世代管理（GDG）',
+ brief:'日次データを世代管理するための GDG を定義し、最初の世代を作ります。',
+ req:['GDG ベース USER01.EX07.DAILY を IDCAMS で定義する（LIMIT は 3、SCRATCH）','同じジョブの次のステップで、新しい世代 (+1) を作って1行 <code>DAY 1</code> を書く（RECFM=FB、LRECL=80）','ジョブは CC 0000 で終わる'],
+ hint:'DEFINE GDG (NAME(…) LIMIT(3) SCRATCH)。新しい世代は DSN=USER01.EX07.DAILY(+1),DISP=(NEW,CATLG,DELETE)。サンプル GDGDEF・GDGRUN が参考になります。',
+ runs:[{}],
+ checks:[['GDG ベースが LIMIT 3・SCRATCH で定義されている',([r])=>{const e=r.st.catalog['USER01.EX07.DAILY'];return !!e&&e.dsorg==='GDG'&&e.limit===3&&e.scratch;}],
+   ['世代が1つでき、中身が DAY 1',([r])=>{const gens=Object.keys(r.st.catalog).filter(n=>/^USER01\.EX07\.DAILY\.G\d{4}V00$/.test(n));return gens.length===1&&sameLines(dsRead(r.st.catalog[gens[0]],null),['DAY 1']);}],['CC 0000 で終わる',([r])=>okCC(r)]],
+ answer:[JOBCARD('EX07'),'//DEFINE   EXEC PGM=IDCAMS','//SYSPRINT DD SYSOUT=*','//SYSIN    DD *','  DEFINE GDG (NAME(USER01.EX07.DAILY) LIMIT(3) SCRATCH)','/*','//NEWGEN   EXEC PGM=IEBGENER','//SYSPRINT DD SYSOUT=*','//SYSIN    DD DUMMY','//SYSUT1   DD *','DAY 1','/*','//SYSUT2   DD DSN=USER01.EX07.DAILY(+1),DISP=(NEW,CATLG,DELETE),','//            SPACE=(TRK,(1,1)),DCB=(RECFM=FB,LRECL=80)']},
+{id:'EX08',level:'中級',title:'何度流しても成功するジョブ',
+ brief:'作業用データセットを毎回作り直すジョブです。前回の残りがあってもなくても成功するようにします。採点では両方の状態で流します。',
+ req:['USER01.EX08.WORK がすでにあれば削除してから、新しく作り直す','作り直したデータセットの中身は1行 <code>RUN OK</code>（RECFM=FB、LRECL=80）','データセットがない状態でも、前回の残り（中身 OLD DATA）がある状態でも、CC 0000 で終わる'],
+ hint:'ないかもしれないデータセットを消す定番は、IEFBR14 で DISP=(MOD,DELETE),SPACE=(TRK,1)。MOD は「なければ新規」なので、どちらの場合もエラーになりません。',
+ runs:[{label:'残りなし'},{label:'残りあり',setup:s=>{s.catalog['USER01.EX08.WORK']=psEntry(['OLD DATA']);}}],
+ checks:[['残りなし: CC 0000 で中身が RUN OK',([a])=>okCC(a)&&sameLines(dsLines(a,'USER01.EX08.WORK'),['RUN OK'])],['残りあり: CC 0000 で中身が RUN OK（OLD DATA が残っていない）',([,b])=>okCC(b)&&sameLines(dsLines(b,'USER01.EX08.WORK'),['RUN OK'])]],
+ answer:[JOBCARD('EX08'),'//CLEAN    EXEC PGM=IEFBR14','//OLD      DD DSN=USER01.EX08.WORK,DISP=(MOD,DELETE),SPACE=(TRK,1)','//MAKE     EXEC PGM=IEBGENER','//SYSPRINT DD SYSOUT=*','//SYSIN    DD DUMMY','//SYSUT1   DD *','RUN OK','/*','//SYSUT2   DD DSN=USER01.EX08.WORK,DISP=(NEW,CATLG,DELETE),','//            SPACE=(TRK,1),DCB=(RECFM=FB,LRECL=80)']},
+{id:'EX09',level:'上級',title:'プロシージャで共通化',
+ brief:'同じ処理（データセットを表示する）を2回使うので、インストリーム・プロシージャにまとめます。',
+ data:{'USER01.EX09.TOKYO':['TOKYO REPORT'],'USER01.EX09.OSAKA':['OSAKA REPORT']},
+ req:['インストリーム・プロシージャ（PROC 〜 PEND）を1つ作る。中身は IEBGENER で、記号パラメーターで渡されたデータセットを SYSOUT=* に出力する','そのプロシージャを2回呼び出し、USER01.EX09.TOKYO と USER01.EX09.OSAKA の中身を出力する','CC 0000 で終わる'],
+ hint:'//PRT PROC IN= のように記号パラメーターを宣言し、プロシージャ内では DSN=&IN と書きます。呼び出しは //TOKYO EXEC PRT,IN=USER01.EX09.TOKYO。',
+ setup:s=>{s.catalog['USER01.EX09.TOKYO']=psEntry(['TOKYO REPORT']);s.catalog['USER01.EX09.OSAKA']=psEntry(['OSAKA REPORT']);},runs:[{}],
+ checks:[['インストリーム・プロシージャを定義している',([r])=>!!r.job&&/^\/\/\S+\s+PROC\b/m.test(r.job.deck.join('\n'))&&/^\/\/\s+PEND\b/m.test(r.job.deck.join('\n'))],
+   ['プロシージャを2回呼び出している',([r])=>!!r.job&&new Set(r.job.steps.filter(s=>s.invoker).map(s=>s.invoker)).size===2],
+   ['プロシージャの中で記号パラメーター（&名前）を使っている',([r])=>{if(!r.job)return false;const m=r.job.deck.join('\n').match(/^\/\/\S+\s+PROC\b.*\n([\s\S]*?)^\/\/\s+PEND\b/m);return !!m&&/&[A-Z@#$]/.test(m[1]);}],
+   ['TOKYO REPORT と OSAKA REPORT が出ている',([r])=>anyOut(r,['TOKYO REPORT'])&&anyOut(r,['OSAKA REPORT'])],['CC 0000 で終わる',([r])=>okCC(r)]],
+ answer:[JOBCARD('EX09'),'//PRT      PROC IN=','//P        EXEC PGM=IEBGENER','//SYSPRINT DD SYSOUT=*','//SYSIN    DD DUMMY','//SYSUT1   DD DSN=&IN,DISP=SHR','//SYSUT2   DD SYSOUT=*','//         PEND','//TOKYO    EXEC PRT,IN=USER01.EX09.TOKYO','//OSAKA    EXEC PRT,IN=USER01.EX09.OSAKA']},
+{id:'EX10',level:'上級',title:'壊れた JCL を直す',
+ brief:'先輩が書いたジョブが動きません。間違いを見つけて直してください（間違いは3か所）。',
+ data:{'USER01.EX10.INPUT':['FIX ME IF YOU CAN','ALL ERRORS FIXED']},
+ req:['ジョブの目的は USER01.EX10.INPUT の中身を SYSOUT=* に出力すること','間違いを直し、CC 0000 で終わるようにする','出力が USER01.EX10.INPUT の中身と同じになる'],
+ hint:'まず JCK で構文を確かめ、次に SUB して JESYSMSG を見ます。JCL エラーが直ると、次は実行時のエラーが見えてきます。',
+ start:[JOBCARD('EX10'),'//* THIS JOB SHOULD COPY USER01.EX10.INPUT TO SYSOUT,','//* BUT IT DOES NOT WORK. FIND AND FIX 3 MISTAKES.','//STEP1    EXEC PGM=IEBGENR','//SYSPRINT DD SYSOUT=*','//SYSIN    DD DUMY','//SYSUT1   DD DSN=USER01.EX10.INPT,DISP=SHR','//SYSUT2   DD SYSOUT=*'],
+ setup:s=>{s.catalog['USER01.EX10.INPUT']=psEntry(['FIX ME IF YOU CAN','ALL ERRORS FIXED']);},runs:[{}],
+ checks:[['IEBGENER を使っている',([r])=>usesPgm(r,'IEBGENER')],['出力が入力の2行と同じ',([r])=>anyOut(r,['FIX ME IF YOU CAN','ALL ERRORS FIXED'])],['CC 0000 で終わる',([r])=>okCC(r)]],
+ answer:[JOBCARD('EX10'),'//STEP1    EXEC PGM=IEBGENER','//SYSPRINT DD SYSOUT=*','//SYSIN    DD DUMMY','//SYSUT1   DD DSN=USER01.EX10.INPUT,DISP=SHR','//SYSUT2   DD SYSOUT=*']},
+];
+// grade JCL lines for one exercise: each requirement check passes or fails
+function gradeEx(ex,lines){
+  const rs=ex.runs.map(v=>runSandbox(s=>{if(ex.setup&&!v.label)ex.setup(s);if(v.setup)v.setup(s);},lines));
+  const items=ex.checks.map(([label,fn])=>{let ok=false;try{ok=!!fn(rs);}catch(e){ok=false;}return{label,ok};});
+  const notes=rs.map((r,k)=>`${ex.runs[k].label?ex.runs[k].label+': ':''}${firstProblem(r.job)}`);
+  return{items,pass:items.every(x=>x.ok),notes};
+}
+// the exercise member in USER01.JCL, taken from the editor if it is open
+function exLines(ex){
+  for(const s of stack)if(s.id==='edit'&&s.dsn===USER+'.JCL'&&s.mem===ex.id){if(s===top())syncEdit();return s.buf.filter((l,i)=>!s.ins[i]||(s.typed&&s.typed[i]));}
+  const e=S.catalog[USER+'.JCL'];const m=e&&e.members[ex.id];return m?m.lines.slice():null;
 }
 
 /* ---------- TSO line-mode messages ---------- */
@@ -2970,6 +3124,14 @@ edit(sc,cmd,raw,cur){
   case 'END':dropIns(sc);leaveEdit(sc);return;
   case 'RES':case 'RESET':sc.marks=null;sc.notes=null;sc.pend={};return;
   case 'JCK':case 'JCLCHECK':dropIns(sc);jck(sc);return;
+  case 'GRADE':{ // simulator command: grade an exercise member (EX01-EX10)
+    const ex=sc.dsn===USER+'.JCL'&&exById(sc.mem||'');
+    if(!ex){setMsg('Not an exercise','GRADE works on the exercise members EX01-EX10 in USER01.JCL. Start one from the guide.',true);return;}
+    dropIns(sc);const res=runGrade(ex);if(!res)return;
+    const n=res.items.filter(x=>x.ok).length;
+    if(res.pass)setMsg(`${ex.id} PASSED`,`All ${res.items.length} requirements are met. See the guide for the details.`,false);
+    else setMsg(`${ex.id}: ${n}/${res.items.length} OK`,'Some requirements are not met yet. The guide shows which ones.',true);
+    return;}
   case 'CAPS':{const a=args[0]?kw(args[0]):'ON';if(a!=='ON'&&a!=='OFF'){setMsg('Invalid parameter','ON and OFF are the only valid parameters for the CAPS command.',true);return;}sc.caps=a==='ON';return;}
   case 'F':case 'FIND':{
     let s=null,how='NEXT';
@@ -3384,6 +3546,52 @@ $('#samples').addEventListener('click',ev=>{
   render();
   term.scrollIntoView({block:'nearest',behavior:'smooth'});
 });
+/* exercises in the guide */
+const exById=id=>EXERCISES.find(e=>e.id===id);
+function drawExList(){
+  const done=S.exDone||{};
+  $('#exlist').innerHTML=EXERCISES.map(e=>`<li><b>${e.id}</b><span>${esc(e.title)}（${e.level}）${done[e.id]?' <span class="ok">✓ 合格</span>':''}</span><button data-ex="${e.id}">始める</button></li>`).join('');
+}
+function drawExCard(ex,res){
+  const c=$('#excard');if(!ex){c.hidden=true;return;}
+  c.hidden=false;
+  let h=`<h3>${ex.id} ${esc(ex.title)}</h3><p>${esc(ex.brief)}</p><b>要件</b><ol>${ex.req.map(r=>`<li>${r}</li>`).join('')}</ol>`;
+  if(ex.data)h+=`<p class="note">用意されている入力: ${Object.keys(ex.data).map(n=>`<code>${n}</code>`).join('、')}（=3.4 で中身を見られます）</p>`;
+  h+=`<details><summary>ヒント</summary><p class="note">${esc(ex.hint)}</p></details>`;
+  h+=`<div class="row"><button class="btn" data-exgrade="${ex.id}">採点する</button><button class="btn" data-exopen="${ex.id}">メンバーを開く</button></div>`;
+  if(res){
+    h+=`<p><b class="${res.pass?'pass':'fail'}">${res.pass?'合格です。':'まだ要件を満たしていません。'}</b>（${res.items.filter(x=>x.ok).length}/${res.items.length}）</p>`;
+    h+=`<ul class="res">${res.items.map(x=>`<li class="${x.ok?'pass':'fail'}">${x.ok?'✓':'✗'} ${esc(x.label)}</li>`).join('')}</ul>`;
+    if(!res.pass)h+=res.notes.map(n=>`<p class="note">${esc(n)}</p>`).join('');
+  }
+  h+=`<details><summary>解答例を見る</summary><pre>${esc(ex.answer.join('\n'))}</pre><p class="note">書き方はほかにもあります。要件を満たしていれば合格です。</p></details>`;
+  c.innerHTML=h;
+}
+function startEx(id){
+  const ex=exById(id);if(!ex)return;
+  const lib=S.catalog[USER+'.JCL'];
+  // input data sets for the exercise also go into your own catalog, so you can browse them and SUB for real
+  for(const[n,l]of Object.entries(ex.data||{}))if(!S.catalog[n])S.catalog[n]=psEntry(l);
+  if(lib&&!lib.members[ex.id]){const d=new Date();lib.members[ex.id]={lines:(ex.start||[JOBCARD(ex.id),`//* ${ex.id}: WRITE JCL THAT MEETS THE REQUIREMENTS IN THE GUIDE.`,'//* THEN TYPE GRADE ON THE COMMAND LINE.']).slice(),created:ymd(d),changed:stamp(d)};}
+  S.exCur=id;save();
+  syncEdit();stack=[stack[0]];msg=null;push({id:'memlist',dsn:USER+'.JCL'});openEdit(USER+'.JCL',ex.id);
+  setMsg('',`${ex.id}: read the requirements in the guide, write the JCL, then type GRADE.`,false);msg.short='';
+  render();drawExList();drawExCard(ex);
+  term.scrollIntoView({block:'nearest',behavior:'smooth'});
+}
+function runGrade(ex){
+  const lines=exLines(ex);
+  if(!lines||!lines.some(l=>l.trim())){drawExCard(ex,{items:[{label:'メンバー '+ex.id+' に JCL がない',ok:false}],pass:false,notes:[]});return null;}
+  const res=gradeEx(ex,lines);
+  if(res.pass){S.exDone=S.exDone||{};S.exDone[ex.id]=true;save();}
+  S.exCur=ex.id;drawExList();drawExCard(ex,res);
+  return res;
+}
+$('#exlist').addEventListener('click',ev=>{const b=ev.target.closest('[data-ex]');if(b)startEx(b.dataset.ex);});
+$('#excard').addEventListener('click',ev=>{
+  const g=ev.target.closest('[data-exgrade]');if(g){runGrade(exById(g.dataset.exgrade));return;}
+  const o=ev.target.closest('[data-exopen]');if(o)startEx(o.dataset.exopen);
+});
 function alertMsg(t){setMsg('Not found',t,true);render();}
 const resetBtn=$('#reset');let armed=null;
 resetBtn.addEventListener('click',()=>{
@@ -3400,6 +3608,7 @@ function boot(){
   const e=S.catalog[USER+'.JCL'];
   if(e&&e.members.HELLO){openEdit(USER+'.JCL','HELLO');setMsg('','Type SUB on the command line and press Enter to submit this job.',false);msg.short='';}
   render();
+  drawExList();drawExCard(S.exCur&&exById(S.exCur));
 }
 boot();
 // test hook: run JCL synchronously against a fresh catalog (only with ?test)
@@ -3409,7 +3618,9 @@ if(TESTMODE)window.JCLTEST={
   sample(n){return SAMPLES[n].slice();},
   addMember(lib,mem,lines){const e=S.catalog[lib];if(e)e.members[mem]={lines:lines.slice(),created:ymd(new Date()),changed:stamp(new Date())};},
   run(lines){return splitDecks(lines).map(d=>{const j=submitDeck(d);if(!j.status)runJob(j);return j;});},
-  jck(lines){return splitDecks(lines).map(d=>convert(d).errs);}
+  jck(lines){return splitDecks(lines).map(d=>convert(d).errs);},
+  exercises(){return EXERCISES.map(e=>({id:e.id,answer:e.answer,start:e.start}));},
+  grade(id,lines){return gradeEx(exById(id),lines);}
 };
 })();
 </script>

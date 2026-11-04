@@ -179,6 +179,19 @@ python -m http.server 8000
 | DD パラメーター | `DDPARMS`（LIKE・VOL・RETPD・DDNAME・PATH） |
 | ジョブ制御 | `JOBRC`、`JOBCOND`、`RESTART`、`REGION`（S80A と IF ABENDCC）、`HOLDJOB`、`SCHED`、`EXPORT` |
 
+### 演習：要件から JCL を書く
+
+右側のガイドの「演習」に、要件（仕様）だけが書かれた課題が10問あります。「始める」を押すとメンバー `EX01`〜`EX10` が開くので、要件を満たす JCL を書き、コマンド行に `GRADE`（この端末独自のコマンド）と入力するか「採点する」を押します。要件ごとに ✓ / ✗ が表示され、不合格なら最初に見るべきエラーメッセージも出ます。
+
+| 問題 | 内容 | 主に使うもの |
+|---|---|---|
+| EX01〜EX02（入門） | SYSOUT への出力、データセットの作成 | IEBGENER、DISP、SPACE、DCB |
+| EX03〜EX05（初級） | PDS とメンバー、並べ替え、行の抽出 | IEFBR14、DFSORT（SORT FIELDS、INCLUDE） |
+| EX06〜EX08（中級） | 条件付き実行、GDG、何度流しても成功するジョブ | IF/THEN/ELSE、IDCAMS、DISP=(MOD,DELETE) |
+| EX09〜EX10（上級） | インストリーム・プロシージャ、壊れた JCL の修正 | PROC/PEND と記号パラメーター、JCK |
+
+採点は、あなたのデータセットに触れない別の環境で、毎回まっさらな状態から JCL を流して行います。EX06 と EX08 は、入力がある／ない、前回の残りがある／ないの2通りで流して両方を確かめます。ヒントと解答例もガイドにあります。
+
 ---
 
 ## 5. できること・できないこと
@@ -233,7 +246,7 @@ ISPF の CAPS ON と同じ動作です。小文字を使いたいときは、`Co
 
 - **サンプル JCL を追加する**: `const SAMPLES={` の中に、`名前:[ "1行目", "2行目", ... ]` の形で追加します。再読み込みすると、新しいサンプルが `USER01.JCL` に自動で追加されます。保存済みのデータは消えません。
 - **プログラム（PGM=）を追加する**: `const PROGRAMS={` の中に関数を追加します。書き方は [docs/how-it-works.md](docs/how-it-works.md) を見てください。
-- **エラーのテストを流す**: GitHub Pages の `tests/run.html`（またはローカルサーバー上の同じファイル）を開くと、JCL エラーのテスト（約140件）を一度に実行して、成功・失敗を一覧にします。テストは保存データに触れません。テストの中身は [tests/cases.js](tests/cases.js)、マニュアル上の全エラーとの対応は [docs/error-catalog.md](docs/error-catalog.md) にあります。
+- **エラーのテストを流す**: GitHub Pages の `tests/run.html`（またはローカルサーバー上の同じファイル）を開くと、JCL エラーのテスト（約140件）と演習の解答例の確認を一度に実行して、成功・失敗を一覧にします。テストは保存データに触れません。テストの中身は [tests/cases.js](tests/cases.js)、マニュアル上の全エラーとの対応は [docs/error-catalog.md](docs/error-catalog.md) にあります。
 
 ---
 
