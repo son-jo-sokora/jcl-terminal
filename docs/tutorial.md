@@ -254,13 +254,14 @@ JCL を初めて書く人向けに、JCL 練習端末の使い方を順番に説
 
 1. **GDGDEF** を一度だけ投入します。`USER01.DAILY.REPORT` という GDG（世代データグループ）が作られます。最新の3世代まで残す設定です。
 2. **GDGRUN** を投入します。`DSN=USER01.DAILY.REPORT(+1)` で、新しい世代 `G0001V00` が作られます。
-3. GDGRUN をあと3回投入します。4回目の JESYSMSG に、次のメッセージが出ます。
+3. GDGRUN をあと3回投入します。4回目の JESYSMSG に、次の行が出ます。
 
    ```
-   IGD107I USER01.DAILY.REPORT.G0001V00  ROLLED OFF AND DELETED
+   IGD107I USER01.DAILY.REPORT.G0004V00             ROLLED IN, DDNAME=SYSUT2
+             USER01.DAILY.REPORT.G0001V00 ROLLED OFF AND DELETED (GDG LIMIT 3)
    ```
 
-   4世代目ができたので、いちばん古い世代が消えました。
+   1行目は、新しい世代が GDG に組み込まれた（ロールイン）ことを示す z/OS のメッセージです。2行目は、4世代目ができたので、いちばん古い世代が消えたことを示しています。実際の z/OS にはこの処理専用のメッセージがないので、2行目はこの練習端末が付けている説明です。
 
 4. GDGRUN の `READALL` ステップの出力を見ると、残っている3世代の中身が新しい順に並んでいます。
 
