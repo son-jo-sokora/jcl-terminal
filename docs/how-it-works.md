@@ -149,6 +149,8 @@ S = {
 | `util` | ユーティリティ選択（3） |
 | `memlist` | メンバー一覧 |
 | `edit` | 編集画面。1行ごとに行番号欄（`input.pfx`）とデータ欄（`input.dat`）がある |
+| `dsu` | Data Set Utility（3.2） |
+| `alloc` / `dsdel` / `dsren` / `dsinfo` | 3.2 の Allocate New Data Set / 削除の確認 / 名前変更 / データセット情報 |
 | `dslp` | Data Set List Utility の入口（3.4） |
 | `dslist` | データセット一覧（3.4 の結果） |
 | `udlist` | z/OS UNIX ファイル一覧（3.17） |

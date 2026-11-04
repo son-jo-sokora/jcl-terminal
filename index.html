@@ -129,8 +129,13 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
       <kbd>F7 / F8</kbd><span>上下スクロール。<kbd>PgUp</kbd> <kbd>PgDn</kbd> でも可。量は <code>Scroll ===&gt;</code> 欄（CSR／PAGE／HALF／数字）</span>
       <kbd>F5 / F6</kbd><span>FIND／CHANGE の繰り返し</span>
       <kbd>F10 / F11</kbd><span>左右スクロール（編集では 73〜80 桁を表示）</span>
-      <kbd>=2</kbd><span>編集、<kbd>=3.4</kbd> データセット一覧、<kbd>=SD</kbd> SDSF</span>
+      <kbd>=2</kbd><span>編集、<kbd>=3.2</kbd> データセットの作成・削除、<kbd>=3.4</kbd> データセット一覧、<kbd>=SD</kbd> SDSF</span>
     </div>
+
+    <h2>データセットとメンバーを作る</h2>
+    <p><kbd>=3.2</kbd> で Data Set Utility を開き、Data Set Name に名前を入れて Option に <kbd>A</kbd>。Allocate New Data Set 画面で属性を決めて Enter すると作成されます。Directory blocks を 1 以上にすると PDS（メンバーを持てるライブラリー）、0 だと順次データセットです。</p>
+    <p class="note">名前を <code>'</code> で囲まないと、先頭に TSO プレフィックス <code>USER01.</code> が付きます（<code>NEW.DATA</code> → <code>USER01.NEW.DATA</code>）。Option <kbd>R</kbd> で名前変更、<kbd>D</kbd> で削除、空欄で情報表示。</p>
+    <p>メンバーは、<kbd>=3.4</kbd> の一覧で PDS の左に <kbd>E</kbd> を付けてメンバー一覧を開き、コマンド行に <kbd>S 新しい名前</kbd> と入力します。何も書かずに F3 で戻ると、メンバーは作られません。</p>
 
     <h2>エディタの行コマンド</h2>
     <p>行番号（<code>000100</code> など）の上に文字を上書きして Enter を押します。残った数字は無視されます。</p>
@@ -2257,6 +2262,77 @@ dslp(sc){
   h+=`<div class="body" id="body"></div>`;
   return h+pfLn(PF_MENU);
 },
+// 3.2 Data Set Utility (ISRUDA2S)
+dsu(sc){
+  const f=dsuMem;
+  let h=DSLP_BAR+titleLn(' '.repeat(31)+'Data Set Utility','')+R(c('cg',' Option ===> ')+inp('cmd',66))+longLn()+R('');
+  const opt=(a,b,x,y)=>R(c('cw','    '+pad(a,6))+c('cg',pad(b,32))+c('cw',pad(x,3))+c('cg',y));
+  h+=opt('A','Allocate new data set','C','Catalog data set')+opt('R','Rename entire data set','U','Uncatalog data set')+opt('D','Delete entire data set','S','Short data set information')+opt('blank','Data set information','V','VSAM Utilities');
+  h+=R('')+R(c('cg',' ISPF Library:'));
+  h+=R(c('cg','    Project . . ')+inp('dsuP',8,f.p))+R(c('cg','    Group . . . ')+inp('dsuG',8,f.g))+R(c('cg','    Type  . . . ')+inp('dsuT',8,f.t));
+  h+=R('')+R(c('cg',' Other Partitioned, Sequential or VSAM Data Set:'));
+  h+=R(c('cg','    Data Set Name . . . ')+inp('dsuDsn',46,f.dsn));
+  h+=R(c('cg','    Volume Serial . . . ')+inp('dsuVol',6,f.vol)+c('cg','    (If not cataloged, required for option "C")'));
+  h+=R('')+R(c('cg',' Data set names without quotes get your TSO prefix ('+USER+') in front.'));
+  h+=`<div class="body" id="body"></div>`;
+  return h+pfLn(PF_MENU);
+},
+// Allocate New Data Set (ISRUAAP2)
+alloc(sc){
+  const f=sc.f,F=(lab,id,w,note)=>R(c('cg',lab)+inp(id,w,f[id])+c('cg',note?' '.repeat(Math.max(1,10-w))+note:''));
+  let h=DSLP_BAR+titleLn(' '.repeat(27)+'Allocate New Data Set','')+cmdLn('Command ===>',false)+longLn()+R('');
+  h+=R(c('cg',' Data Set Name  . . . : ')+c('ct',sc.dsn));
+  h+=F(' Management class . . . ','mgmt',8,'(Blank for default management class)');
+  h+=F(' Storage class  . . . . ','stor',8,'(Blank for default storage class)');
+  h+=F('  Volume serial . . . . ','vol',6,'(Blank for system default volume) **');
+  h+=F('  Device type . . . . . ','unit',8,'(Generic unit or device address) **');
+  h+=F(' Data class . . . . . . ','dcls',8,'(Blank for default data class)');
+  h+=F('  Space units . . . . . ','units',7,'(BLKS, TRKS, CYLS, KB, MB, BYTES or RECORDS)');
+  h+=F('  Average record unit   ','avgrec',1,'(M, K, or U)');
+  h+=F('  Primary quantity  . . ','prim',8,'(In above units)');
+  h+=F('  Secondary quantity    ','sec',8,'(In above units)');
+  h+=F('  Directory blocks  . . ','dir',8,'(Zero for sequential data set) *');
+  h+=F('  Record format . . . . ','recfm',4,'');
+  h+=F('  Record length . . . . ','lrecl',5,'');
+  h+=F('  Block size  . . . . . ','blk',5,'');
+  h+=F('  Data set name type    ','dsntype',8,'(LIBRARY, PDS, LARGE, BASIC or blank) *');
+  h+=F('  Expiration date . . . ','expdt',10,'(YYYY/MM/DD, YYYY.DDD, DDDD days or blank)');
+  h+=R('')+R(c('cg','  ( * Specifying LIBRARY may override zero directory block)'))+R(c('cg','  ( ** Only one of these fields may be specified)'));
+  h+=`<div class="body" id="body"></div>`;
+  return h+pfLn(PF_MENU);
+},
+// Confirm Delete (ISRUADC1)
+dsdel(sc){
+  const e=S.catalog[sc.dsn]||{};
+  let h=DSLP_BAR+titleLn(' '.repeat(31)+'Confirm Delete','')+cmdLn('Command ===>',false)+longLn()+R('');
+  h+=R(c('cg',' Data Set Name . . . : ')+c('ct',sc.dsn))+R(c('cg',' Volume  . . . . . . : ')+c('ct',e.dsorg==='GDG'?'(GDG BASE)':e.vol||VOL))+R(c('cg',' Creation Date . . . : ')+c('ct',e.created||''));
+  h+=R('')+R(c('cw','  Instructions:'))+R(c('cg','    Press ')+c('cw','ENTER')+c('cg',' key to confirm delete.'))+R(c('cg','    Enter ')+c('cw','CANCEL')+c('cg',' or ')+c('cw','EXIT')+c('cg',' to cancel delete.'));
+  h+=`<div class="body" id="body"></div>`;
+  return h+pfLn(PF_MENU);
+},
+// Rename Data Set
+dsren(sc){
+  let h=DSLP_BAR+titleLn(' '.repeat(30)+'Rename Data Set','')+cmdLn('Command ===>',false)+longLn()+R('');
+  h+=R(c('cg',' Data Set Name . . : ')+c('ct',sc.dsn))+R('');
+  h+=R(c('cg',' Enter new name below:   (The data set will be recataloged.)'))+R('');
+  h+=R(c('cg','    Data Set Name . . . ')+inp('newdsn',46,sc.nn||''));
+  h+=`<div class="body" id="body"></div>`;
+  return h+pfLn(PF_MENU);
+},
+// Data Set Information (ISRUAIES)
+dsinfo(sc){
+  const e=S.catalog[sc.dsn]||{},po=e.dsorg==='PO',u=(e.space&&e.space.units)||'TRACKS';
+  const lab=(s,w)=>s.length<=w-5?s+' '.repeat(w-4-s.length)+'. : ':s.padEnd(w-2)+': ';
+  let h=DSLP_BAR+titleLn(' '.repeat(28)+'Data Set Information','')+cmdLn('Command ===>',false)+longLn()+R('');
+  h+=R(c('cg',' Data Set Name . . . . : ')+c('ct',sc.dsn))+R('');
+  const L=[['General Data',''],['Management class . . : ','**None**'],['Storage class  . . . : ','STANDARD'],['Volume serial  . . . : ',e.dsorg==='GDG'?'':e.vol||VOL],['Device type  . . . . : ','3390'],['Data class . . . . . : ','**None**'],['Organization . . . . : ',e.dsorg||''],['Record format  . . . : ',e.recfm||''],['Record length  . . . : ',e.lrecl||''],['Block size . . . . . : ',e.blksize||''],[lab('1st extent '+u.toLowerCase(),23),(e.space&&e.space.prim)||1],[lab('Secondary '+u.toLowerCase(),23),(e.space&&e.space.sec)||0],['Data set name type . : ',po?(e.dsntype||'PDS'):'']];
+  const n=po?Object.keys(e.members||{}).length:0,used=po?Object.values(e.members||{}).reduce((a,m)=>a+m.lines.length,0):(e.lines||[]).length;
+  const Rr=[['Current Allocation',''],[lab('Allocated '+u.toLowerCase(),22),(e.space&&e.space.prim)||1],['Allocated extents . : ',1],...(po?[['Maximum dir. blocks : ',(e.space&&e.space.dir)||5]]:[]),['',''],['Current Utilization',''],['Used records  . . . : ',used],...(po?[['Number of members . : ',n]]:[]),['',''],['Dates',''],['Creation date . . . : ',e.created||''],['Referenced date . . : ',ymd(new Date())],['Expiration date . . : ',e.expdt?`${e.expdt.slice(0,4)}.${e.expdt.slice(4)}`:'***None***']];
+  for(let k=0;k<Math.max(L.length,Rr.length);k++){const a=L[k]||['',''],b=Rr[k]||['',''];
+    h+=R(c(a[1]===''&&a[0]?'cw':'cg',' '+pad(a[0],23))+c('ct',pad(String(a[1]),16))+c(b[1]===''&&b[0]?'cw':'cg',pad(b[0],22))+c('ct',String(b[1])));}
+  h+=`<div class="body" id="body"></div>`;
+  return h+pfLn(PF_MENU);
+},
 memlist(sc){
   const e=S.catalog[sc.dsn];
   const names=e?Object.keys(e.members).sort():[];
@@ -2366,7 +2442,7 @@ function render(){
   term.innerHTML=RENDER[sc.id](sc);
   const b=$('#body');
   // as in ISPF, a list can scroll until its last line is at the top of the screen
-  if(b&&!['menu','util','dslp','sdsfmenu','tso'].includes(sc.id)){const s=document.createElement('div');s.id='spacer';s.style.height=Math.max(0,b.clientHeight-lineH())+'px';b.appendChild(s);}
+  if(b&&!['menu','util','dslp','sdsfmenu','tso','dsu','alloc','dsdel','dsren','dsinfo'].includes(sc.id)){const s=document.createElement('div');s.id='spacer';s.style.height=Math.max(0,b.clientHeight-lineH())+'px';b.appendChild(s);}
   if(b&&sc.scroll!=null)b.scrollTop=sc.scroll==='BOT'?botTop(b):sc.scroll;
   if(sc.id==='tso'&&b)b.scrollTop=b.scrollHeight;
   // bring a line found by FIND (or a new insert line) into view, at the top like ISPF
@@ -2451,6 +2527,8 @@ function saveEdit(sc){
   if(sc.view)return;
   const e=S.catalog[sc.dsn];if(!e)return;
   dropIns(sc);
+  // a new member that is still empty is not created
+  if(e.dsorg==='PO'&&sc.mem&&!e.members[sc.mem]&&!sc.buf.some(l=>l.trim()))return;
   dsWrite(e,sc.mem,sc.buf.slice(),false);sc.dirty=false;save();
 }
 function openEdit(dsn,mem,view){
@@ -2631,11 +2709,23 @@ function jump(opt){
   return select(opt);
 }
 let dsLevel=USER;
+// ISPF remembers what was typed on the Data Set Utility and Allocate panels
+const dsuMem={p:'',g:'',t:'',dsn:'',vol:''};
+const allocMem={mgmt:'',stor:'',vol:'',unit:'',dcls:'',units:'TRKS',avgrec:'',prim:'1',sec:'1',dir:'0',recfm:'FB',lrecl:'80',blk:'27920',dsntype:'',expdt:''};
+// a data set name as ISPF reads it: quoted = as is, unquoted = TSO prefix added
+function ispfDsn(v){
+  v=v.trim().toUpperCase();if(!v)return'';
+  if(/^'.*'$/.test(v))return v.slice(1,-1);
+  if(v.startsWith("'"))return v.slice(1);
+  return USER+'.'+v;
+}
+const dsnOk=n=>n.length<=44&&n.split('.').every(q=>/^[A-Z@#$][A-Z0-9@#$-]{0,7}$/.test(q));
 function select(opt){
   switch(opt){
     case '1':push({id:'memlist',dsn:USER+'.JCL',view:true});return true;
     case '2':push({id:'memlist',dsn:USER+'.JCL'});return true;
     case '3':push({id:'util'});return true;
+    case '3.2':push({id:'dsu'});return true;
     case '3.4':push({id:'dslp',level:dsLevel});return true;
     case '3.17':push({id:'udlist',dir:'/u/user01/'});return true;
     case 'SD':case 'S':push({id:'sdsfmenu'});return true;
@@ -2643,7 +2733,7 @@ function select(opt){
     case 'X':push({id:'tso',lines:['READY','']});top().ready=true;return true;
     case '':return true;
     default:
-      if(/^(0|4|5|6|7|9|10|11|12|13)(\.\S*)?$|^3\.\d+$/.test(opt))setMsg('Invalid option',`Option ${opt} is not available in this simulator. Use 1, 2, 3, 3.4, 3.17 or SD.`,true);
+      if(/^(0|4|5|6|7|9|10|11|12|13)(\.\S*)?$|^3\.\d+$/.test(opt))setMsg('Invalid option',`Option ${opt} is not available in this simulator. Use 1, 2, 3, 3.2, 3.4, 3.17 or SD.`,true);
       else setMsg('Invalid option','The option that was entered was not valid.',true);
       return false;
   }
@@ -2658,6 +2748,79 @@ util(sc,cmd){
   if(/^\d+$/.test(cmd)){select('3.'+cmd);return;}
   setMsg('Invalid option','The option that was entered was not valid.',true);
 },
+dsu(sc,cmd){
+  const v=id=>($('#'+id)||{value:''}).value.trim().toUpperCase();
+  Object.assign(dsuMem,{p:v('dsuP'),g:v('dsuG'),t:v('dsuT'),dsn:($('#dsuDsn')||{value:''}).value.trim(),vol:v('dsuVol')});
+  const o=cmd||'';
+  if(!['','A','R','D','S','C','U','V'].includes(o)){setMsg('Invalid option','The option that was entered was not valid.',true);return;}
+  if(['C','U','V'].includes(o)){setMsg('Invalid option',`Option ${o} is not available in this simulator. Use A, R, D, S or blank.`,true);return;}
+  // the ISPF library fields win when Project is filled in
+  let dsn;
+  if(dsuMem.p){if(!dsuMem.g||!dsuMem.t){setMsg('Enter required field','Enter required field at the cursor position.',true);sc.focus={key:dsuMem.g?'#dsuT':'#dsuG',p:0};return;}dsn=`${dsuMem.p}.${dsuMem.g}.${dsuMem.t}`;}
+  else dsn=ispfDsn(dsuMem.dsn);
+  if(!dsn){setMsg('Enter required field','Enter required field at the cursor position.',true);sc.focus={key:'#dsuDsn',p:0};return;}
+  if(!dsnOk(dsn)){setMsg('Invalid data set name',`Syntax error in data set name '${dsn}'.`,true);sc.focus={key:'#dsuDsn',p:0};return;}
+  const e=S.catalog[dsn];
+  if(o==='A'){
+    if(e){setMsg('Duplicate data set name',`Data set '${dsn}' already exists.`,true);return;}
+    push({id:'alloc',dsn,f:Object.assign({},allocMem,{vol:dsuMem.vol||allocMem.vol})});return;}
+  if(!e){setMsg('Data set not cataloged',`'${dsn}' was not found in catalog.`,true);return;}
+  if(o==='D'){push({id:'dsdel',dsn});return;}
+  if(o==='R'){if(e.dsorg==='GDG'){setMsg('Rename not allowed','A GDG base cannot be renamed here.',true);return;}push({id:'dsren',dsn});return;}
+  push({id:'dsinfo',dsn});
+},
+alloc(sc,cmd){
+  for(const k of Object.keys(sc.f)){const el=$('#'+k);if(el)sc.f[k]=el.value.trim().toUpperCase();}
+  if(cmd==='CAN'||cmd==='CANCEL'||cmd==='END'){stack.pop();setMsg('Allocation cancelled','',false);return;}
+  const f=sc.f,bad=(s,l,id)=>{setMsg(s,l,true);sc.focus={key:'#'+id,p:0};};
+  const U={TRKS:'TRK',TRK:'TRK',TRACK:'TRK',TRACKS:'TRK',CYLS:'CYL',CYL:'CYL',CYLINDER:'CYL',BLKS:'BLK',BLK:'BLK',BLOCK:'BLK',KB:'KB',MB:'MB',BYTES:'BYTES',BYTE:'BYTES',RECORDS:'RECORDS',RECORD:'RECORDS'}[f.units];
+  if(!U)return bad('Invalid space units','Must be TRKS, BLKS, CYLS, KB, MB, BYTES or RECORDS.','units');
+  if(f.avgrec&&!['M','K','U'].includes(f.avgrec))return bad('Invalid value','Average record unit must be M, K or U.','avgrec');
+  for(const k of['prim','sec','dir'])if(f[k]!==''&&!/^\d{1,8}$/.test(f[k]))return bad('Invalid numeric','Enter a number at the cursor position.',k);
+  if(!f.prim||+f.prim===0)return bad('Enter required field','Enter required field at the cursor position.','prim');
+  if(!/^(F|FB|FBA|FBS|FA|V|VB|VBA|VBS|VA|U|UA)$/.test(f.recfm))return bad('Invalid record format','Data set has record format not supported by ISPF. Must be F, V, or U.','recfm');
+  if(!/^\d{1,5}$/.test(f.lrecl)||+f.lrecl<1||+f.lrecl>32760)return bad('Invalid record length','Record length must be 1 to 32760.','lrecl');
+  if(f.blk!==''&&(!/^\d{1,5}$/.test(f.blk)||+f.blk>32760))return bad('Invalid block size','Block size must be 0 to 32760.','blk');
+  if(/^F/.test(f.recfm)&&+f.blk&&+f.blk%+f.lrecl)return bad('Invalid block size','Data set block size is not a multiple of LRECL for RECFM=FB.','blk');
+  if(f.dsntype&&!['LIBRARY','PDS','LARGE','BASIC','EXTREQ','EXTPREF','HFS'].includes(f.dsntype))return bad('Invalid value','Data set name type must be LIBRARY, PDS, LARGE, BASIC or blank.','dsntype');
+  if(f.vol&&f.unit)return bad('Inconsistent parameters','Only one of Volume serial and Device type may be specified.','vol');
+  if(f.vol&&!VOLUMES.includes(f.vol))return bad('Volume not available',`Volume ${f.vol} is not mounted. Use ${VOLUMES.join(', ')} or blank.`,'vol');
+  if(f.unit&&!UNITS.includes(f.unit))return bad('Invalid device type',`${f.unit} is not a valid generic unit.`,'unit');
+  if(f.expdt&&!/^(\d{4}\/\d{2}\/\d{2}|\d{4}\.\d{3}|\d{1,4})$/.test(f.expdt))return bad('Invalid expiration date','Use YYYY/MM/DD, YYYY.DDD, or a retention period in days.','expdt');
+  if(S.catalog[sc.dsn]){setMsg('Duplicate data set name',`Data set '${sc.dsn}' already exists.`,true);return;}
+  const po=+f.dir>0||f.dsntype==='LIBRARY'||f.dsntype==='PDS';
+  const kw={RECFM:f.recfm,LRECL:f.lrecl,BLKSIZE:f.blk||'0',SPACE:`(TRK,(${f.prim},${f.sec||0}${po?','+(+f.dir||5):''}))`};
+  if(f.expdt){if(/^\d{1,4}$/.test(f.expdt))kw.RETPD=f.expdt;else{const m=f.expdt.match(/^(\d{4})\/(\d{2})\/(\d{2})$/);kw.EXPDT=m?`${m[1]}/${z(jday(new Date(+m[1],+m[2]-1,+m[3])),3)}`:f.expdt.replace('.','/');}}
+  const e=newEntry(kw,null,null,f.vol||null);
+  if(po){e.dsorg='PO';e.members=e.members||{};delete e.lines;e.dsntype=f.dsntype||'PDS';}
+  e.space={units:{TRK:'TRACKS',CYL:'CYLINDERS',BLK:'BLOCKS'}[U]||'TRACKS',prim:+f.prim,sec:+(f.sec||0),dir:po?(+f.dir||5):0};
+  S.catalog[sc.dsn]=e;save();
+  Object.assign(allocMem,f,{vol:''});
+  stack.pop();
+  setMsg('Data set allocated',`${sc.dsn} allocated on volume ${e.vol}.`,false);
+},
+dsdel(sc,cmd){
+  stack.pop();
+  if(cmd==='CAN'||cmd==='CANCEL'||cmd==='END'||cmd==='EXIT'){setMsg('Delete cancelled','',false);return;}
+  const e=S.catalog[sc.dsn];if(!e)return;
+  if(/^SYS1\./.test(sc.dsn)){setMsg('Not authorized',`You are not authorized to delete ${sc.dsn}.`,true);return;}
+  if(unexpired(e)){setMsg('Not expired',`${sc.dsn} is protected until ${e.expdt.slice(0,4)}.${e.expdt.slice(4)} (EXPDT/RETPD).`,true);return;}
+  if(e.dsorg==='GDG'&&gdgGens(sc.dsn).length){setMsg('GDG not empty','Delete the generations first, or use IDCAMS DELETE ... GDG FORCE.',true);return;}
+  delete S.catalog[sc.dsn];save();
+  setMsg('Data set deleted',`'${sc.dsn}' deleted from volume ${e.vol||VOL}.`,false);
+},
+dsren(sc,cmd){
+  const raw=($('#newdsn')||{value:''}).value.trim();sc.nn=raw;
+  if(cmd==='CAN'||cmd==='CANCEL'||cmd==='END'){stack.pop();return;}
+  const nn=ispfDsn(raw);
+  if(!nn){setMsg('Enter required field','Enter required field at the cursor position.',true);sc.focus={key:'#newdsn',p:0};return;}
+  if(!dsnOk(nn)){setMsg('Invalid data set name',`Syntax error in data set name '${nn}'.`,true);sc.focus={key:'#newdsn',p:0};return;}
+  if(S.catalog[nn]){setMsg('Duplicate data set name',`Data set '${nn}' already exists.`,true);return;}
+  if(/^SYS1\./.test(sc.dsn)){setMsg('Not authorized',`You are not authorized to rename ${sc.dsn}.`,true);return;}
+  S.catalog[nn]=S.catalog[sc.dsn];delete S.catalog[sc.dsn];save();
+  stack.pop();setMsg('Data set renamed',`Oldname: '${sc.dsn}', newname: '${nn}'`,false);
+},
+dsinfo(sc,cmd){if(cmd==='END'||cmd==='CAN')stack.pop();},
 dslp(sc,cmd){
   const f=$('#dslev');let lev=(f?f.value:'').trim().toUpperCase().replace(/^'|'$/g,'');
   sc.level=lev;
@@ -2938,7 +3101,7 @@ function pf(n){
   const sc=top(),cur=curPos();inhibit=false;
   if(n===7||n===8){doScroll(sc,n===8?1:-1,cur);return;}
   if(n===10||n===11){
-    if(['menu','util','dslp'].includes(sc.id)){msg=null;setMsg('Not available','The action bar is not available in this simulator.',false);render();return;}
+    if(['menu','util','dslp','dsu','alloc','dsdel','dsren','dsinfo'].includes(sc.id)){msg=null;setMsg('Not available','The action bar is not available in this simulator.',false);render();return;}
     doSide(sc,n===11?1:-1,cur);return;}
   if(n===5||n===6){
     if(sc.id==='edit'){

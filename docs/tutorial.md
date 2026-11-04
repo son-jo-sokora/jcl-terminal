@@ -128,6 +128,9 @@ JCL を初めて書く人向けに、JCL 練習端末の使い方を順番に説
 
    同じ名前のデータセットはもう作れない、という意味です。**CLEANUP** を投入すると削除できます。
 
+> [!TIP]
+> JCL を使わずに、ISPF の画面からも作れます。`=3.2` で Data Set Utility を開き、Data Set Name に `MY.LIB` と入力して Option に `A` を入れ、Enter を押します。Allocate New Data Set 画面で Directory blocks を `5` にして Enter を押すと、メンバーを持てる `USER01.MY.LIB` ができます（名前を `'` で囲まないと先頭に `USER01.` が付きます）。`=3.4` の一覧でその左に `E` を付けて開き、コマンド行に `S MEMBER1` と入力すると新しいメンバーを書けます。
+
 ---
 
 ## レッスン 4: JCL エラーを直す
