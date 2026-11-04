@@ -99,6 +99,8 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
 @media (max-width:1179px){.guide{justify-self:stretch;max-width:min(62ch,100%)}}
 .note{font-size:12.5px;color:var(--ink-soft)}
 #reset{margin-top:6px;font-family:var(--sans);font-size:13px}
+#linkbar{position:fixed;top:0;right:0;z-index:50;background:#1d4e7a;color:#fff;font:12px/1.6 var(--sans);padding:3px 10px;border-bottom-left-radius:6px;max-width:70vw}
+#linkbar button{font:12px var(--sans);margin-left:8px;padding:0 6px}
 </style>
 </head>
 <body>
@@ -202,7 +204,12 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
       <li><b>HOLDJOB</b><span>TYPRUN=HOLD。SDSF の A で解放、C で取り消し</span><button data-open="HOLDJOB">開く</button></li>
       <li><b>SCHED</b><span>SCHEDULE HOLDUNTL で1分後に実行</span><button data-open="SCHED">開く</button></li>
       <li><b>EXPORT</b><span>EXPORT と SYMBOLS=EXECSYS</span><button data-open="EXPORT">開く</button></li>
+      <li><b>LINKRPT</b><span>DISP=OLD（排他）で売上ファイルを読む（連携モード用）</span><button data-open="LINKRPT">開く</button></li>
+      <li><b>LINKASK</b><span>印刷してよいかオペレーターに尋ねる（連携モード用）</span><button data-open="LINKASK">開く</button></li>
     </ul>
+
+    <h2>連携モード：オペレーターコンソールとつなぐ</h2>
+    <p><a href="../mvs-ipl-sim/?link" target="_blank" rel="noopener">MVS IPL シミュレータ</a>を別のタブで連携モードにして開くと、この端末はシステム SYSA の TSO 利用者 USER01 になります。<kbd>SUB</kbd> したジョブは、シミュレータの JES2 が実行のタイミングを決めます（$S 前やイニシエーター休止中は待つ、データセットを使用中なら IEF099I で待つ、など）。OPRASK の問い合わせはシミュレータのコンソールに出ます。SYSA の TSO が動いていないとジョブは投入できません。連携中は、SDSF の <kbd>/</kbd> コマンドとオペレーター演習は使えません（オペレーターの操作はシミュレータで行います）。画面右上の「連携を切る」で通常に戻ります。</p>
 
     <h2>演習：要件から JCL を書く</h2>
     <p>要件（仕様）を読んで JCL を書き、自動で採点します。「始める」を押すと、メンバー <code>EXnn</code> が開きます。書いたら下の「採点する」か、コマンド行に <kbd>GRADE</kbd>（この端末独自のコマンド）。採点は、あなたのデータセットに触れない別の環境で毎回まっさらな状態から流します。</p>
@@ -255,7 +262,8 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
 <script>
 (function(){
 'use strict';
-const USER='USER01', SYSID='S0W1', NODE='N1', VOL='USER00', LSKEY='jcl-terminal-v1';
+const USER='USER01', NODE='N1', VOL='USER00', LSKEY='jcl-terminal-v1';
+let SYSID='S0W1';   // 連携モードでは、つないだオペレーターコンソールのシステム名（SYSA）になる
 const ROWS_NOTE='';
 
 /* ---------- sample members ---------- */
@@ -585,6 +593,26 @@ HOLDJOB:[
 "//* TYPRUN=HOLD KEEPS THE JOB IN THE INPUT QUEUE (PRTY 14).",
 "//* IN SDSF ST TYPE A NEXT TO IT TO RELEASE IT, OR C TO CANCEL IT.",
 "//STEP1    EXEC PGM=IEFBR14"],
+LINKRPT:[
+"//LINKRPT  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* SALES REPORT. DISP=OLD ASKS FOR EXCLUSIVE USE OF THE DATA SET,",
+"//* SO THE JOB WAITS (IEF099I) WHILE ANOTHER JOB IS USING IT.",
+"//* USED BY THE LINKED EXERCISES OF THE MVS IPL SIMULATOR.",
+"//STEP1    EXEC PGM=IEBGENER",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT1   DD DSN=USER01.SALES.DATA,DISP=OLD",
+"//SYSUT2   DD SYSOUT=*"],
+LINKASK:[
+"//LINKASK  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
+"//* ASKS THE OPERATOR (WTOR) BEFORE PRINTING THE MONTHLY REPORT.",
+"//* YES: PRINT RUNS (CC 0000). NO: PRINT IS SKIPPED (CC 0004).",
+"//ASK      EXEC PGM=OPRASK,PARM='OK TO PRINT MONTHLY SALES REPORT'",
+"//PRINT    EXEC PGM=IEBGENER,COND=(0,NE,ASK)",
+"//SYSPRINT DD SYSOUT=*",
+"//SYSIN    DD DUMMY",
+"//SYSUT1   DD DSN=USER01.SALES.DATA,DISP=SHR",
+"//SYSUT2   DD SYSOUT=*"],
 SCHED:[
 "//SCHED    JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
 "//* SCHEDULE HOLDUNTL='+00:01' HOLDS THE JOB FOR ONE MINUTE, THEN",
@@ -639,6 +667,7 @@ IDCLIST:[
 "  LISTCAT LEVEL(&LVL)",
 "/*"]
 };
+function salesEntry(){return{dsorg:'PS',recfm:'FB',lrecl:80,blksize:27920,created:ymd(new Date()),vol:VOL,lines:['2026-10 TOKYO     1250000','2026-10 OSAKA      980000','2026-10 NAGOYA     610000','2026-10 FUKUOKA    455000']};}
 function pds(members){const d=new Date(),m={};for(const k of Object.keys(members))m[k]={lines:members[k].slice(),created:ymd(d),changed:stamp(d)};return{dsorg:'PO',recfm:'FB',lrecl:80,members:m,created:ymd(d),vol:VOL};}
 
 /* ---------- helpers ---------- */
@@ -666,9 +695,10 @@ const rc4=n=>z(n,4);
 function defaults(){
   const d=new Date(), members={};
   for(const k of Object.keys(SAMPLES)) members[k]={lines:SAMPLES[k].slice(),created:ymd(d),changed:stamp(d)};
-  return {v:1,nextJob:1234,jobs:[],wtors:[],cmdLog:[],seen:Object.keys(SAMPLES).concat(['lib:PROCLIB']),catalog:{
+  return {v:1,nextJob:1234,jobs:[],wtors:[],cmdLog:[],seen:Object.keys(SAMPLES).concat(['lib:PROCLIB','ds:SALES']),catalog:{
     'USER01.JCL':{dsorg:'PO',recfm:'FB',lrecl:80,members,created:ymd(d),vol:VOL},
     'USER01.PROCLIB':pds(PROCLIB),
+    'USER01.SALES.DATA':salesEntry(),
     'SYS1.PROCLIB':pds(SYSPROCLIB)
   }};
 }
@@ -685,14 +715,140 @@ if(!S.seen)S.seen=['HELLO','ALLOC','SORT','IFTEST','CLEANUP','BADJCL','ABEND'];
 {const lib=S.catalog[USER+'.JCL'],d=new Date();
  for(const k of Object.keys(SAMPLES))if(!S.seen.includes(k)){if(lib&&!lib.members[k])lib.members[k]={lines:SAMPLES[k].slice(),created:ymd(d),changed:stamp(d)};S.seen.push(k);}
  if(!S.seen.includes('lib:PROCLIB')){if(!S.catalog['USER01.PROCLIB'])S.catalog['USER01.PROCLIB']=pds(PROCLIB);S.seen.push('lib:PROCLIB');}
+ // the sales data used by LINKRPT / LINKASK
+ if(!S.seen.includes('ds:SALES')){if(!S.catalog['USER01.SALES.DATA'])S.catalog['USER01.SALES.DATA']=salesEntry();S.seen.push('ds:SALES');}
  // the system library always exists
  if(!S.catalog['SYS1.PROCLIB'])S.catalog['SYS1.PROCLIB']=pds(SYSPROCLIB);}
 // jobs left mid-run when the page closed are finished as "lost"
 // held jobs stay in the input queue across reloads; a job that was mid-run is marked lost
 // jobs waiting for an operator reply (WTOR) survive a reload; anything else caught mid-run is ended
-for(const j of S.jobs) if(j.queue!=='PRINT'&&!(j.queue==='INPUT'&&j.status&&j.conv)&&!(j.waiting&&j.conv)){j.queue='PRINT';j.maxcc='JCL ERROR';delete j.status;}
+// jobs handed to the operator console (link mode) wait for it, so they are kept as they are
+for(const j of S.jobs) if(j.queue!=='PRINT'&&!j.linked&&!(j.queue==='INPUT'&&j.status&&j.conv)&&!(j.waiting&&j.conv)){j.queue='PRINT';j.maxcc='JCL ERROR';delete j.status;}
 if(!S.wtors)S.wtors=[];
 if(!S.cmdLog)S.cmdLog=[];
+/* ---------- link mode: work together with the MVS IPL simulator (operator console) in another tab ----------
+   Open with ?link (or the simulator's 連携モード). Both pages must be on the same site (same origin).
+   The simulator is JES2 on SYSA: it decides when a submitted job runs (initiators, $S/$P, holds,
+   data sets in use) and shows OPRASK questions on its console. This terminal keeps the job's JCL,
+   runs it when told to, and reports how it ended. Messages go over BroadcastChannel 'mvs-link-v1'. */
+const LINK={on:false,ch:null,state:null,ops:false,seen:0};
+function linkSend(m){if(LINK.ch)try{LINK.ch.postMessage(m);}catch(e){}}
+function linkAsks(j){return !!(j.conv&&j.conv.job&&!j.conv.hasErr&&j.conv.job.steps.some(s=>s.pgm==='OPRASK'));}
+// data sets the job uses, and whether it needs them exclusively (anything but DISP=SHR)
+function linkDsns(j){
+  const out=[];if(!j.conv||!j.conv.job)return out;
+  for(const s of j.conv.job.steps)for(const d of s.dds||[]){
+    const kw=(d.p&&d.p.kw)||{},v=kw.DSN||kw.DSNAME;if(!v)continue;
+    const n=unq(v).replace(/\(.*$/,'');if(!n||/^[&*]/.test(n))continue;
+    const excl=(sub(kw.DISP||'')[0]||'NEW').toUpperCase()!=='SHR';
+    const e=out.find(x=>x.dsn===n);if(e)e.excl=e.excl||excl;else out.push({dsn:n,excl});
+  }
+  return out;
+}
+// the job's console messages (what the operator sees when it ends)
+function linkConsole(j){
+  const l=(j.spool||[]).find(s=>s.dd==='JESMSGLG');if(!l)return[];
+  return l.lines.map(x=>x.replace(/^\d\d\.\d\d\.\d\d JOB\d+\s+/,'')).filter(x=>/^(IEF450I|IEF453I|IEFC452I|\$HASP39[56]|CSV0\d\dI|IEA995I)\b/.test(x));
+}
+function linkPending(){return S.jobs.filter(j=>j.linked&&j.queue!=='PRINT').map(j=>({id:j.id,name:j.name,cls:j.cls,queue:j.queue,held:!!j.status,dsns:linkDsns(j),asks:linkAsks(j)}));}
+function linkSubmit(job){
+  job.linked=true;
+  if(job.linkSent){if(job.queue==='INPUT'&&!job.status)linkSend({t:'cmd',text:'$AJ'+(+job.id.slice(3))});save();return;}  // released here (SDSF A, HOLDUNTL)
+  job.linkSent=true;
+  if(job.conv&&(job.conv.hasErr||['SCAN','COPY'].includes(job.typrun))){
+    // a JCL error (or SCAN/COPY) never gets an initiator: it ends at once
+    job.linkDone=true;runJob(job);
+    linkSend({t:'submit',id:job.id,name:job.name,cls:job.cls,pgmr:job.pgmr,held:false,dsns:[],asks:false,done:true,maxcc:job.maxcc,lines:linkConsole(job)});
+    return;
+  }
+  linkSend({t:'submit',id:job.id,name:job.name,cls:job.cls,pgmr:job.pgmr,held:!!job.status,dsns:linkDsns(job),asks:linkAsks(job)});
+  save();
+}
+function linkCanSubmit(){
+  if(!LINK.ops||!LINK.state||Date.now()-LINK.seen>15000){setMsg('NO OPERATOR','連携モード: オペレーターコンソール（MVS IPL シミュレータ）のタブが見つかりません。シミュレータを連携モードで開いてください。',true);return false;}
+  if(!LINK.state.logon){setMsg('NOT LOGGED ON',`連携モード: ${SYSID} の TSO が動いていないため、ジョブを投入できません。オペレーター側で IPL して S TSO を入力してください。`,true);return false;}
+  return true;
+}
+// a linked job cancelled by the operator before or during execution
+function linkCancelSpool(j,code){
+  const T=hms(new Date());
+  j.queue='PRINT';j.maxcc='ABEND '+code;delete j.conv;delete j.waiting;delete j.status;
+  j.spool=[{dsid:2,dd:'JESMSGLG',step:'JES2',cls:j.msgclass,dest:'LOCAL',copies:1,lines:[
+    `${T} ${j.id}  IEF450I ${j.name} STEP1 - ABEND=${code} U0000 REASON=00000000`,`${T} ${j.id}  $HASP395 ${pad(j.name,8)} ENDED - ABEND=${code}`]}];
+  save();
+  if(j.notify&&!TESTMODE)notify(`${T} ${j.id} $HASP165 ${pad(j.name,8)} ENDED AT ${NODE} - ABENDED  ABEND=${code} U0000 CN(INTERNAL)`);
+}
+// / commands from SDSF: job commands for our own jobs are passed to JES2 on SYSA; the rest belong to the operator
+function linkSysCommand(cmd){
+  const m=cmd.match(/^\$([HACD])\s*(?:JOB|J)\s*(.+)$/);let out;
+  if(m){const t='$'+m[1]+'J'+m[2].replace(/\s+/g,'');linkSend({t:'cmd',text:t});out=[`（連携）JES2 コマンドを ${SYSID} のオペレーターコンソールへ送りました: ${t}`];}
+  else out=['（連携モード）MVS・JES2 のコマンドは、オペレーターコンソール（シミュレータのタブ）から入力してください。'];
+  logRec('NC',USER,cmd,true);logLines(out,USER,true);
+  return out;
+}
+function linkIn(m){
+  if(!m||!m.t)return;
+  const j=m.id?S.jobs.find(x=>x.id===m.id):null;
+  switch(m.t){
+    case 'state':LINK.state=m;LINK.ops=true;LINK.seen=Date.now();if(m.sys)SYSID=m.sys;break;
+    case 'hello':linkSend({t:'hello',pending:linkPending()});break;
+    case 'hello-ack':LINK.ops=true;LINK.seen=Date.now();break;
+    case 'start':
+      if(!j||j.queue==='PRINT')break;
+      j.queue='EXECUTION';
+      if(linkAsks(j)){if(!j.asks)j.asks=j.conv.job.steps.filter(s=>s.pgm==='OPRASK').map(s=>({step:s.name,text:(s.parm||'OK TO CONTINUE').trim(),log:[],reply:null}));j.waiting=true;askNext(j);}
+      save();break;
+    case 'run':if(j&&j.queue==='EXECUTION'&&!j.waiting&&j.conv)runJob(j);break;
+    case 'reply':{
+      if(!j||!j.asks)break;const a=j.asks[m.ask];if(!a||a.reply||a.cancel)break;
+      const t=String(m.text||'').trim().toUpperCase();a.log.push(`IEE600I REPLY IS;${t.slice(0,43)}`);
+      if(['YES','NO'].includes(t)){a.reply=t;askNext(j);}
+      else{const bad=`OPR003I ${pad(j.name,8)} REPLY '${t}' IS NOT VALID - REPLY YES OR NO`;a.log.push(bad);linkSend({t:'msg',text:bad});askNext(j);}
+      save();break;}
+    case 'cancel':
+      if(!j||j.queue==='PRINT')break;j.linkCancelled=true;
+      if(j.waiting&&j.asks)cancelWaiting(j);else linkCancelSpool(j,m.code);
+      break;
+    case 'job':
+      if(!j)break;
+      if(m.status==='HELD')j.status='HELD';
+      if(m.status==='RELEASED')delete j.status;
+      if(m.status==='CANCELED'&&j.queue!=='PRINT'){delete j.status;delete j.conv;j.queue='PRINT';j.maxcc='CANCELED';
+        j.spool=[{dsid:2,dd:'JESMSGLG',step:'JES2',lines:[`${hms(new Date())} ${j.id}  $HASP890 JOB(${j.name}) CANCELLED`],cls:j.msgclass,dest:'LOCAL',copies:1}];}
+      save();break;
+    case 'requeue':if(j&&j.queue!=='PRINT'){j.queue='INPUT';delete j.waiting;delete j.asks;save();}break;
+    case 'cold':S.jobs=S.jobs.filter(x=>!x.linked);save();break;   // a JES2 cold start loses every job and its output
+  }
+  linkBanner();
+}
+function linkBanner(){
+  let b=document.getElementById('linkbar');
+  if(!LINK.on){if(b)b.remove();return;}
+  if(!b){b=document.createElement('div');b.id='linkbar';document.body.appendChild(b);}
+  const st=LINK.state,alive=LINK.ops&&Date.now()-LINK.seen<15000;
+  const jes=st?(st.jes==='UP'?(st.drain?'JES2 休止中（$P）':'JES2 稼働中'):st.jes==='HOLD'?'JES2 は $S 待ち':'JES2 停止中'):'';
+  const txt=!alive||!st?'オペレーターコンソールが見つかりません（シミュレータのタブを連携モードで開いてください）':st.phase!=='UP'?`${SYSID} は停止中`:st.logon?`${SYSID} に TSO ログオン中 ／ ${jes}`:`${SYSID} の TSO は停止中（ジョブを投入できません）`;
+  b.innerHTML=`<b>連携モード</b> <span>${esc(txt)}</span> <button type="button" id="linkoff">連携を切る</button>`;
+  b.querySelector('#linkoff').onclick=()=>{try{sessionStorage.removeItem('jcl-link');}catch(e){}linkSend({t:'bye'});location.href=location.pathname+location.search.replace(/([?&])link\b&?/,'$1').replace(/[?&]$/,'');};
+}
+function linkInit(){
+  const asked=/[?&]link\b/.test(location.search);let kept=false;
+  try{kept=!TESTMODE&&sessionStorage.getItem('jcl-link')==='1';}catch(e){}
+  if(!(asked||kept)||typeof BroadcastChannel==='undefined')return;
+  LINK.on=true;try{if(!TESTMODE)sessionStorage.setItem('jcl-link','1');}catch(e){}
+  LINK.ch=new BroadcastChannel('mvs-link-v1');LINK.ch.onmessage=e=>linkIn(e.data);
+  linkSend({t:'hello',pending:linkPending()});
+  setInterval(()=>{linkSend({t:'ping'});linkBanner();},4000);
+  addEventListener('pagehide',()=>linkSend({t:'bye'}));
+  linkBanner();
+  // used by the linked tests (tests/link-e2e.html in the simulator)
+  window.JclLink={state:()=>LINK.state,
+    jobs:()=>S.jobs.map(x=>({id:x.id,name:x.name,queue:x.queue,maxcc:x.maxcc,status:x.status||'',linked:!!x.linked})),
+    submitMember:m=>{submit(S.catalog[USER+'.JCL'].members[m].lines.slice());return S.jobs[0]&&S.jobs[0].name;},
+    lineCmd:(name,v)=>{const x=S.jobs.find(y=>y.name===name&&y.linked);if(!x)return;
+      if(v==='A'&&x.queue==='INPUT'&&x.status){delete x.status;startJob(x,0);}
+      else if(v==='H')sysCommand(`$HJ${+x.id.slice(3)}`);else if(v==='C')sysCommand(`$CJ${+x.id.slice(3)}`);}};
+}
 if(!S.zfs)S.zfs={'/u/user01/README':{lines:['THIS IS YOUR Z/OS UNIX HOME DIRECTORY.','FILES WRITTEN WITH DD PATH= APPEAR HERE (ISPF OPTION 3.17).'],mode:'SIRUSR,SIWUSR',changed:stamp(new Date())}};
 
 /* ======================================================================
@@ -1877,6 +2033,8 @@ function runJob(job){
   else if(outcome.type==='scan')job.maxcc='';
   else job.maxcc='CC '+rc4(outcome.rc);
   save();
+  // link mode: tell the operator console how the job ended
+  if(job.linked&&LINK.on&&!job.linkCancelled&&!job.linkDone)linkSend({t:'result',id:job.id,maxcc:job.maxcc,lines:linkConsole(job)});
   if(job.notify&&!sandbox){
     let tail;
     if(outcome.type==='jcl'||outcome.type==='alloc')tail=' - JCL ERROR';
@@ -2777,6 +2935,8 @@ function beginAsks(job,k){
 function askNext(job){
   const a=job.asks.find(x=>!x.reply&&!x.cancel);
   if(!a){job.waiting=false;save();setTimeout(()=>runJob(job),300);return null;}
+  // link mode: the question goes to the operator console, which numbers it and sends the reply back
+  if(job.linked&&LINK.on){const k=job.asks.indexOf(a);a.id=null;const t=`OPR001A ${a.text}. REPLY YES OR NO`;a.log.push(t);linkSend({t:'wtor',id:job.id,ask:k,text:t});save();return t;}
   const id=nextWtorId(),text=`*${id} OPR001A ${a.text}. REPLY YES OR NO`;
   a.id=id;a.log.push(text);S.wtors.push({id,job:job.id,name:job.name,text});
   logRec('N ',job.id,text);save();
@@ -2813,6 +2973,7 @@ function displayReplies(seq,tm){
 }
 function sysCommand(text){
   const cmd=text.trim().toUpperCase();
+  if(LINK.on)return linkSysCommand(cmd);
   cmdSeq=(cmdSeq+1)%1000;const seq=z(cmdSeq,3);
   const d=new Date(),tm=hms(d,'.'),jd=`${d.getFullYear()}.${z(jday(d),3)}`;
   let out;
@@ -3106,6 +3267,7 @@ function gradeOp(ex){
   return{items,pass:items.every(x=>x.ok),notes};
 }
 function startOp(ex){
+  if(LINK.on){setMsg('LINK MODE','連携モード中はオペレーター演習を使えません。オペレーターの操作はシミュレータのタブで行います。画面下の「連携を切る」で通常に戻せます。',true);render();return;}
   S.opRun=S.opRun||{};
   const run={from:S.cmdLog.length,jobs:{}};
   for(const lines of ex.scenario||[]){const d=splitDecks(lines)[0];const j=submitDeck(d);run.jobs[j.name]=j.id;startJob(j,0);}
@@ -3142,6 +3304,7 @@ function notify(line){
 function submit(lines){
   const decks=splitDecks(lines);
   if(!decks.length){setMsg('No data','Nothing to submit. The member is empty.',true);return;}
+  if(LINK.on&&!linkCanSubmit())return;
   const out=[];
   decks.forEach((deck,k)=>{
     const job=submitDeck(deck);out.push(`IKJ56250I JOB ${job.name}(${job.id}) SUBMITTED`);
@@ -3152,6 +3315,8 @@ function submit(lines){
 }
 // run a job unless it is held; a HOLDUNTL job is released at its time
 function startJob(job,k){
+  // link mode: the operator console (JES2 on SYSA) decides when the job runs
+  if(LINK.on&&!sandbox&&!job.local){linkSubmit(job);return;}
   if(job.status){
     if(job.releaseAt){const ms=Math.max(0,job.releaseAt-Date.now());
       if(ms<2**31-1)setTimeout(()=>{if(job.status&&job.queue==='INPUT'){delete job.status;delete job.releaseAt;startJob(job,0);}},ms);}
@@ -3381,6 +3546,7 @@ st(sc,cmd){
       if(/^AWAIT/.test(j.status)){setMsg('NOT RELEASED',`${j.name} waits for system ${j.saff}; this system is ${SYSID}.`,true);return;}
       delete j.status;delete j.releaseAt;startJob(j,0);setMsg('JOB RELEASED','',false);continue;}
     if(v==='C'){ // cancel a job that has not run
+      if(j.linked&&LINK.on&&j.queue!=='PRINT'){sdsfInfo=sysCommand(`$CJ${+j.id.slice(3)}`);continue;} // link mode: JES2 on SYSA does it
       if(j.waiting&&j.queue==='EXECUTION'){sdsfInfo=sysCommand(`$CJ${+j.id.slice(3)}`);continue;} // SDSF C issues $CJ
       if(j.queue!=='INPUT'){setMsg('NOT CANCELLED',`${j.name} has already run.`,true);return;}
       delete j.status;delete j.conv;j.queue='PRINT';j.maxcc='CANCELED';
@@ -3812,9 +3978,11 @@ resetBtn.addEventListener('click',()=>{
   S=defaults();save();boot();
 });
 setInterval(()=>{if(!busy)drawOia();},1000);
-for(const j of S.jobs)if(j.queue==='INPUT'&&j.status&&j.releaseAt)startJob(j,0);
+linkInit();
+for(const j of S.jobs)if(j.queue==='INPUT'&&j.status&&j.releaseAt&&!j.linked)startJob(j,0);
 // a job that was waiting for a reply before the reload asks again (or runs, if it got all its replies)
-for(const j of S.jobs)if(j.waiting&&j.conv){j.queue='EXECUTION';if(!S.wtors.some(w=>w.job===j.id))askNext(j);}
+// (a linked job is put back in the input queue by the operator console instead)
+for(const j of S.jobs)if(j.waiting&&j.conv&&!j.linked){j.queue='EXECUTION';if(!S.wtors.some(w=>w.job===j.id))askNext(j);}
 
 function boot(){
   stack=[{id:'menu'}];msg=null;
