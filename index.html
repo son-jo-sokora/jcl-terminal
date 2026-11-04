@@ -56,6 +56,8 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
 .f.dat,.f.dat:focus{color:var(--t-green)}
 .f.dat.nocaps{text-transform:none}
 .f.scr{width:4ch;color:var(--t-turq)}
+.info{height:0;position:relative;z-index:3;flex:none}
+.info .ln{position:absolute;left:0;right:0;background:var(--screen)}
 .lmsg{height:0;position:relative;z-index:2;flex:none}
 .lmsg .ln{position:absolute;left:0;right:0;top:0;background:var(--screen)}
 /* 3270 replace mode shows a block cursor; insert mode a bar */
@@ -131,6 +133,20 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
       <kbd>F10 / F11</kbd><span>左右スクロール（編集では 73〜80 桁を表示）</span>
       <kbd>=2</kbd><span>編集、<kbd>=3.2</kbd> データセットの作成・削除、<kbd>=3.4</kbd> データセット一覧、<kbd>=SD</kbd> SDSF</span>
     </div>
+
+    <h2>SDSF からコマンドを投入する</h2>
+    <p>SDSF の画面で、コマンド行に <kbd>/</kbd> に続けて MVS や JES2 のコマンドを入力します。応答はコマンド行の下に重ねて表示され、すべて <kbd>ULOG</kbd> に残ります。<kbd>LOG</kbd> でシステムログ（ジョブの開始・終了も含む）を表示します。</p>
+    <div class="keytbl">
+      <kbd>/D T</kbd><span>日付と時刻（IEE136I）</span>
+      <kbd>/D A,L</kbd><span>実行中の作業（IEE114I）</span>
+      <span><kbd>/D IPLINFO</kbd></span><span>IPL の情報（IEE254I）</span>
+      <span><kbd>/D U,DASD,ONLINE</kbd></span><span>DASD ボリューム（IEE457I）</span>
+      <span><kbd>/$DJ'名前'</kbd></span><span>ジョブの状態（$HASP890）。<kbd>/$DJ1234</kbd> のように番号でも可</span>
+      <span><kbd>/$HJ</kbd> <kbd>/$AJ</kbd></span><span>ジョブを保留／解放（実行前のジョブ）</span>
+      <span><kbd>/$CJ</kbd> <kbd>/$PJ</kbd></span><span>ジョブを取り消し／出力ごと削除（$HASP250）</span>
+      <span><kbd>/$DI</kbd> <kbd>/$DSPL</kbd></span><span>イニシエーター／スプールの使用率</span>
+    </div>
+    <p class="note">知らないコマンドには、MVS は IEE305I、JES2 は $HASP003 を返します。ST 画面の行コマンド <kbd>H</kbd> でもジョブを保留できます。</p>
 
     <h2>データセットとメンバーを作る</h2>
     <p><kbd>=3.2</kbd> で Data Set Utility を開き、Data Set Name に名前を入れて Option に <kbd>A</kbd>。Allocate New Data Set 画面で属性を決めて Enter すると作成されます。Directory blocks を 1 以上にすると PDS（メンバーを持てるライブラリー）、0 だと順次データセットです。</p>
@@ -1755,6 +1771,7 @@ function submitDeck(deck){
   }
   S.jobs.unshift(job);
   if(S.jobs.length>40)S.jobs.length=40;
+  logRec('N ',id,`$HASP100 ${pad(name,8)} ON INTRDR${' '.repeat(12)}${pad(job.pgmr,20)} FROM TSU00042 ${USER}`);
   return job;
 }
 
@@ -1815,6 +1832,8 @@ function runJob(job){
   const jdest=(jo&&jo.DEST)||conv.jes2.route||'LOCAL',jcls=(jo&&jo.CLASS&&jo.CLASS!=='*')?jo.CLASS:job.msgclass;
   const jes=(dsid,dd,lines)=>({dsid,dd,step:'JES2',lines,cls:jcls,dest:jdest,copies:1});
   job.spool=[jes(2,'JESMSGLG',msglg),jes(3,'JESJCL',jcl),jes(4,'JESYSMSG',sysmsg)].concat(user);
+  // the system log gets the job's console messages
+  for(const l of msglg){const m=l.match(/^\d\d\.\d\d\.\d\d (JOB\d+)  ((?:\$HASP\d+|IEF\d{3}I|IEFC452I|IRR010I|CSV0\d\dI|IEA995I)\b.*)$/);if(m)logRec('N ',m[1],m[2]);}
   job.queue='PRINT';
   if(outcome.type==='jcl'||outcome.type==='alloc')job.maxcc='JCL ERROR';
   else if(outcome.type==='abend')job.maxcc='ABEND '+outcome.code;
@@ -2199,7 +2218,9 @@ const EDIT_BAR=bar(' File  Edit  Edit_Settings  Menu  Utilities  Compilers  Test
 let scrollAmt='CSR';
 const scrInp=()=>`<input class="f scr" id="scroll" maxlength="4" value="${esc(scrollAmt)}" autocomplete="off" spellcheck="false" autocapitalize="characters">`;
 const cmdLn=(label,scroll=true)=>{const w=80-label.length-1-(scroll?17:0);return R(c('cg',label+' ')+inp('cmd',w)+(scroll?c('cg','  Scroll ===> ')+scrInp():''));};
-const sdsfCmdLn=()=>R(c('cg','COMMAND INPUT ===> ')+inp('cmd',43)+c('cg','  SCROLL ===> ')+scrInp());
+// responses to / commands are shown on the information lines under the command line (z/OS SDSF User's Guide)
+const infoLn=()=>sdsfInfo&&sdsfInfo.length?`<div class="info">${sdsfInfo.slice(0,14).concat(sdsfInfo.length>14?[`... ${sdsfInfo.length-14} MORE LINES - ENTER ULOG TO SEE ALL`]:[]).map((l,k)=>`<div class="ln" style="top:${(k*1.38).toFixed(2)}em">${c('cw',' '+l)}</div>`).join('')}</div>`:'';
+const sdsfCmdLn=()=>R(c('cg','COMMAND INPUT ===> ')+inp('cmd',43)+c('cg','  SCROLL ===> ')+scrInp())+infoLn();
 
 const RENDER={
 menu(){
@@ -2366,8 +2387,11 @@ edit(sc){
 },
 browse(sc){
   const sd=sc.sdsf;
+  // ULOG and SYSLOG are read fresh each time they are shown
+  if(sc.live){const src=sc.live==='ulog'?ulog:syslog,d=new Date();sc.lines=src.map(t=>({t,cls:/^N[C ]/.test(t)?'cw':'cg'}));
+    sc.title=sc.live==='ulog'?`SDSF ULOG CONSOLE ${USER}`:`SDSF SYSLOG  ${SYSID} ${SYSID} ${z(d.getMonth()+1)}/${z(d.getDate())}/${d.getFullYear()}`;}
   let h=(sd?SDSF_BAR:ISPF_BAR);
-  if(sd)h+=titleLn(sc.title,`LINE 0       COLUMNS 02- 81`)+sdsfCmdLn();
+  if(sd)h+=titleLn(sc.title,sc.live?`LINE ${sc.lines.length}  COLUMNS 001 080`:`LINE 0       COLUMNS 02- 81`)+sdsfCmdLn();
   else h+=titleLn(sc.title,`Line 00000000 Col 001 080`)+cmdLn('Command ===>');
   h+=longLn()+'<div class="body" id="body">';
   h+=R(c('cw',banner(sd?'TOP OF DATA':'Top of Data',80)));
@@ -2666,6 +2690,89 @@ function edChange(sc,from,to,how,cur){
   setMsg(`${q} changed`,`${q} - changed to '${to}'.`,false);
 }
 
+/* ---------- MVS / JES2 commands from SDSF (/ command) ---------- */
+// ULOG holds this session's commands and responses; SYSLOG also gets job events.
+// Records use the SYSLOG layout: type, system, yyddd, time, console or job id, then the text.
+const ulog=[],syslog=[];
+let sdsfInfo=null,cmdSeq=100;
+function logRec(type,who,text,toUlog){
+  const d=new Date(),t=`${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())}.${z(Math.floor(d.getMilliseconds()/10))}`;
+  const l=`${pad(type,2)}0000000 ${pad(SYSID,8)} ${String(d.getFullYear()).slice(2)}${z(jday(d),3)} ${t} ${pad(who,8)} 00000290  ${text}`;
+  syslog.push(l);if(syslog.length>2000)syslog.shift();
+  if(toUlog){ulog.push(l);if(ulog.length>2000)ulog.shift();}
+}
+const logLines=(lines,who,toUlog)=>lines.forEach((l,k)=>logRec(lines.length===1?'NR':k===0?'MR':k===lines.length-1?'ER':'DR',who,l,toUlog));
+// a job named by JOBnnnnn / Jnnnn / nnnn or 'name'
+function findJobs(ref){
+  ref=(ref||'').trim();
+  let m=ref.match(/^'([A-Z@#$*][A-Z0-9@#$*]{0,7})'$/);
+  if(m){const rx=new RegExp('^'+m[1].replace(/\*/g,'.*')+'$');return S.jobs.filter(j=>rx.test(j.name));}
+  if(!ref||ref==='*')return S.jobs.slice();
+  m=ref.match(/^(?:JOB|J)?0*(\d{1,5})$/);
+  if(m)return S.jobs.filter(j=>+j.id.slice(3)===+m[1]);
+  return null;
+}
+function hasp890(j){
+  const st=j.queue==='EXECUTION'?`EXECUTING ${SYSID}`:j.queue==='INPUT'?'AWAITING EXECUTION':'AWAITING HARDCOPY';
+  const hold=j.queue==='INPUT'&&/HELD/.test(j.status||'')?'JOB':'NONE';
+  return[`$HASP890 JOB(${j.name})${' '.repeat(Math.max(1,10-j.name.length))}STATUS=(${st}),CLASS=${j.cls},`,
+    `$HASP890${' '.repeat(16)}PRIORITY=${j.queue==='PRINT'?1:(j.prty!=null?j.prty:9)},SYSAFF=(${j.saff||'ANY'}),HOLD=(${hold})`];
+}
+function sysCommand(text){
+  const cmd=text.trim().toUpperCase();
+  cmdSeq=(cmdSeq+1)%1000;const seq=z(cmdSeq,3);
+  const d=new Date(),tm=hms(d,'.'),jd=`${d.getFullYear()}.${z(jday(d),3)}`;
+  let out;
+  if(cmd.startsWith('$'))out=jes2Command(cmd.slice(1));
+  else{
+    const [verb,...rest]=cmd.split(/\s+/),arg=rest.join(' ');
+    if(['D','DISPLAY'].includes(verb)){
+      if(arg==='T'){const u=new Date(d.getTime()+d.getTimezoneOffset()*60000);out=[`IEE136I LOCAL: TIME=${tm} DATE=${jd}  UTC: TIME=${hms(u,'.')} DATE=${u.getFullYear()}.${z(jday(u),3)}`];}
+      else if(arg==='IPLINFO')out=[`IEE254I  ${tm} IPLINFO DISPLAY ${seq}`,` SYSTEM IPLED AT 05.00.00 ON ${z(d.getMonth()+1)}/${z(d.getDate())}/${d.getFullYear()}`,' RELEASE z/OS 03.02.00    LICENSE = z/OS',' USED LOAD00 IN SYS1.IPLPARM ON 0A80',' ARCHLVL = 3   MTLSHARE = N',' VALIDATED BOOT: NO',' IEASYM LIST = 00',' IEASYS LIST = 00 (OP)',' IODF DEVICE: ORIGINAL(0A80) CURRENT(0A80)',' IPL DEVICE: ORIGINAL(0A82) CURRENT(0A82) VOLUME(SYSRES)'];
+      else if(/^A(,L)?$|^ACTIVE(,L)?$/.test(arg)){
+        const act=S.jobs.filter(j=>j.queue==='EXECUTION');
+        out=[`IEE114I ${tm} ${jd} ACTIVITY ${seq}`,
+          ' JOBS     M/S    TS USERS    SYSAS    INITS   ACTIVE/MAX VTAM     OAS',
+          ` ${z(act.length,5)}    00004    00001      00030    00003    00001/00300       00002`,
+          '  JES2     JES2     IEFPROC  NSW  S  VTAM     VTAM     VTAM     NSW  S',
+          '  TSO      TSO      STEP1    OWT  S  SDSF     SDSF     SDSF     NSW  S',
+          ...act.map(j=>`  ${pad(j.name,8)} ${pad('STEP1',8)}          NSW  J`),
+          `  ${pad(USER,8)} OWT`];
+      }
+      else if(/^U,DASD,(ONLINE|ON)$|^U,DASD$/.test(arg))out=[`IEE457I ${tm} UNIT STATUS ${seq}`,' UNIT TYPE STATUS        VOLSER     VOLSTATE',...VOLUMES.map((v,k)=>` ${(0xA80+k).toString(16).toUpperCase().padStart(4,'0')} 3390 ${pad(v==='SYSRES'?'S':'A',13)} ${pad(v,10)} ${v==='SYSRES'?'PRIV/RSDNT':'PRIV/RSDNT'}`)];
+      else out=[`IEE305I ${pad(verb+(arg?' '+arg.split(',')[0]:''),8)} COMMAND INVALID`];
+    }
+    else out=[`IEE305I ${pad(verb,8)} COMMAND INVALID`];
+  }
+  logRec('NC',USER,cmd,true);logLines(out,USER,true);
+  return out;
+}
+function jes2Command(c){
+  const NOENT=t=>[`$HASP003 RC=(52),${t} - NO SELECTABLE ENTRIES FOUND MATCHING SPECIFICATION`];
+  let m;
+  if(/^DI(NIT)?$/.test(c)||/^D\s*INIT/.test(c))return[1,2,3].map(n=>`$HASP892 INIT(${n})    STATUS=INACTIVE,CLASS=${['A','B','A'][n-1]},NAME=${n},ASID=0000`);
+  if(/^D\s*A$/.test(c)){const a=S.jobs.filter(j=>j.queue==='EXECUTION');return a.length?a.flatMap(hasp890):NOENT('D A');}
+  if(/^D\s*SPL$|^DSPOOL$/.test(c)){const pct=(0.5+S.jobs.length*0.13).toFixed(4);return[`$HASP893 VOLUME(SPOOL1)  STATUS=ACTIVE,PERCENT=${Math.round(pct)}`,`$HASP646 ${pct} PERCENT SPOOL UTILIZATION`];}
+  if((m=c.match(/^([DHACP])\s*(JOBQ|JOB|JQ|J)\s*(.*)$/))){
+    const[,act,,ref]=m;const what=`${act} J${ref?' '+ref:''}`;
+    if(!ref&&act!=='D')return[`$HASP003 RC=(01),${what} - INVALID SYNTAX`];
+    const js=findJobs(ref);
+    if(js===null)return[`$HASP003 RC=(01),${what} - INVALID SYNTAX`];
+    if(!js.length)return NOENT(what);
+    const out=[];
+    for(const j of js){
+      if(act==='H'&&j.queue==='INPUT'&&!j.status)j.status='HELD';
+      if(act==='A'&&j.queue==='INPUT'&&/HELD/.test(j.status||'')){delete j.status;startJob(j,0);}
+      if(act==='C'&&j.queue==='INPUT'){delete j.status;delete j.conv;j.queue='PRINT';j.maxcc='CANCELED';
+        j.spool=[{dsid:2,dd:'JESMSGLG',step:'JES2',lines:[`${hms(new Date())} ${j.id}  $HASP890 JOB(${j.name}) CANCELLED BY ${USER}`],cls:j.msgclass,dest:'LOCAL',copies:1}];}
+      out.push(...hasp890(j));
+      if(act==='P'){S.jobs=S.jobs.filter(x=>x!==j);out.push(`$HASP250 ${pad(j.name,8)} PURGED -- (JOB KEY WAS ${(+j.id.slice(3)*4099).toString(16).toUpperCase().padStart(8,'0')})`);}
+    }
+    save();return out;
+  }
+  return[`$HASP003 RC=(03),${c.split(/[\s,(']/)[0]} - INVALID PARAMETER STATEMENT`];
+}
+
 /* ---------- TSO line-mode messages ---------- */
 let pendingTso=[];
 function showTso(lines){
@@ -2895,7 +3002,7 @@ browse(sc,cmd,raw){
 sdsfmenu(sc,cmd){
   if(!cmd)return;
   if(['ST','I','O','H','DA'].includes(cmd)){push({id:'st',panel:cmd});return;}
-  setMsg('COMMAND INVALID','Panels ST, DA, I, O and H work in this simulator.',true);
+  setMsg('COMMAND INVALID','Panels ST, DA, I, O, H, LOG and ULOG work here. Enter /command for MVS or JES2 commands.',true);
 },
 st(sc,cmd){
   for(const{i,v}of lineCmds()){
@@ -2903,6 +3010,9 @@ st(sc,cmd){
     if(v==='?'){push({id:'dd',job:j.id});return;}
     if(v==='S'){openSpool(j,null);return;}
     if(v==='P'){S.jobs=S.jobs.filter(x=>x!==j);save();continue;}
+    if(v==='H'){ // hold a job that has not run ($HJ)
+      if(j.queue!=='INPUT'){setMsg('NOT HELD',`${j.name} has already run.`,true);return;}
+      j.status='HELD';save();sdsfInfo=sysCommand(`$HJ${+j.id.slice(3)}`);continue;}
     if(v==='A'){ // release a held job
       if(j.queue!=='INPUT'||!j.status){setMsg('NOT HELD',`${j.name} is not held.`,true);return;}
       if(/^AWAIT/.test(j.status)){setMsg('NOT RELEASED',`${j.name} waits for system ${j.saff}; this system is ${SYSID}.`,true);return;}
@@ -2911,7 +3021,7 @@ st(sc,cmd){
       if(j.queue!=='INPUT'){setMsg('NOT CANCELLED',`${j.name} has already run.`,true);return;}
       delete j.status;delete j.conv;j.queue='PRINT';j.maxcc='CANCELED';
       j.spool=[{dsid:2,dd:'JESMSGLG',step:'JES2',lines:[`${hms(new Date())} ${j.id}  $HASP890 JOB(${j.name}) CANCELLED BY ${USER}`],cls:j.msgclass,dest:'LOCAL',copies:1}];save();continue;}
-    setMsg('COMMAND INVALID','Use S, ?, A (release), C (cancel) or P (purge).',true);return;
+    setMsg('COMMAND INVALID','Use S, ?, H (hold), A (release), C (cancel) or P (purge).',true);return;
   }
   if(['ST','I','O','H','DA'].includes(cmd)){sc.panel=cmd;return;}
   if(cmd)setMsg('COMMAND INVALID','',true);
@@ -3055,7 +3165,18 @@ function enter(){
     msg=null;
     if(readScroll()===null){if(sc.id==='edit'){sc.pend={};for(const x of sc._lcs)sc.pend[x.i]=x.v;}sc.focus={key:'#scroll',p:0};render();return;}
     if(isSdsf(sc)&&cmd)lastSdsf=raw;
-    if(cmd.startsWith('=')){jump(cmd.slice(1));}
+    sdsfInfo=null;
+    if(isSdsf(sc)&&raw.startsWith('/')){
+      const c=raw.slice(1).trim();
+      if(!c)setMsg('ENTER A COMMAND','Type an MVS or JES2 command after /, for example /D T or /$DJ.',false);
+      else sdsfInfo=sysCommand(c);
+      if(sc.id==='st'||sc.id==='dd')HANDLE[sc.id](sc,'',''); // line commands typed at the same time
+    }
+    else if(isSdsf(sc)&&/^(ULOG|U|LOG|LOG [SO]|ULOG CLOSE|U CLOSE)$/.test(cmd)){
+      if(/CLOSE/.test(cmd)){ulog.length=0;setMsg('ULOG CLOSED','',false);}
+      else{stack=stack.filter(s=>!['st','dd','browse'].includes(s.id));push({id:'browse',sdsf:true,live:/^U/.test(cmd)?'ulog':'log',lines:[],scroll:'BOT'});}
+    }
+    else if(cmd.startsWith('=')){jump(cmd.slice(1));}
     else if(cmd==='SDSF'&&sc.id!=='tso'){push({id:'sdsfmenu'});}
     else HANDLE[sc.id](sc,cmd,raw,cur);
     // in edit, Enter alone leaves the cursor where it was, like ISPF
