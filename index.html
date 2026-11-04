@@ -209,7 +209,7 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
     </ul>
 
     <h2>連携モード：オペレーターコンソールとつなぐ</h2>
-    <p><a href="../mvs-ipl-sim/?link" target="_blank" rel="noopener">MVS IPL シミュレータ</a>を別のタブで連携モードにして開くと、この端末はシステム SYSA の TSO 利用者 USER01 になります。<kbd>SUB</kbd> したジョブは、シミュレータの JES2 が実行のタイミングを決めます（$S 前やイニシエーター休止中は待つ、データセットを使用中なら IEF099I で待つ、など）。OPRASK の問い合わせはシミュレータのコンソールに出ます。SYSA の TSO が動いていないとジョブは投入できません。連携中は、SDSF の <kbd>/</kbd> コマンドとオペレーター演習は使えません（オペレーターの操作はシミュレータで行います）。画面右上の「連携を切る」で通常に戻ります。</p>
+    <p><a href="../mvs-console-sim/?link" target="_blank" rel="noopener">MVS コンソール シミュレータ</a>を別のタブで連携モードにして開くと、この端末はシステム SYSA の TSO 利用者 USER01 になります。<kbd>SUB</kbd> したジョブは、シミュレータの JES2 が実行のタイミングを決めます（$S 前やイニシエーター休止中は待つ、データセットを使用中なら IEF099I で待つ、など）。OPRASK の問い合わせはシミュレータのコンソールに出ます。SYSA の TSO が動いていないとジョブは投入できません。連携中は、SDSF の <kbd>/</kbd> コマンドとオペレーター演習は使えません（オペレーターの操作はシミュレータで行います）。画面右上の「連携を切る」で通常に戻ります。</p>
 
     <h2>演習：要件から JCL を書く</h2>
     <p>要件（仕様）を読んで JCL を書き、自動で採点します。「始める」を押すと、メンバー <code>EXnn</code> が開きます。書いたら下の「採点する」か、コマンド行に <kbd>GRADE</kbd>（この端末独自のコマンド）。採点は、あなたのデータセットに触れない別の環境で毎回まっさらな状態から流します。</p>
@@ -597,7 +597,7 @@ LINKRPT:[
 "//LINKRPT  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
 "//* SALES REPORT. DISP=OLD ASKS FOR EXCLUSIVE USE OF THE DATA SET,",
 "//* SO THE JOB WAITS (IEF099I) WHILE ANOTHER JOB IS USING IT.",
-"//* USED BY THE LINKED EXERCISES OF THE MVS IPL SIMULATOR.",
+"//* USED BY THE LINKED EXERCISES OF THE MVS CONSOLE SIMULATOR.",
 "//STEP1    EXEC PGM=IEBGENER",
 "//SYSPRINT DD SYSOUT=*",
 "//SYSIN    DD DUMMY",
@@ -726,7 +726,7 @@ if(!S.seen)S.seen=['HELLO','ALLOC','SORT','IFTEST','CLEANUP','BADJCL','ABEND'];
 for(const j of S.jobs) if(j.queue!=='PRINT'&&!j.linked&&!(j.queue==='INPUT'&&j.status&&j.conv)&&!(j.waiting&&j.conv)){j.queue='PRINT';j.maxcc='JCL ERROR';delete j.status;}
 if(!S.wtors)S.wtors=[];
 if(!S.cmdLog)S.cmdLog=[];
-/* ---------- link mode: work together with the MVS IPL simulator (operator console) in another tab ----------
+/* ---------- link mode: work together with the MVS console simulator (operator console) in another tab ----------
    Open with ?link (or the simulator's 連携モード). Both pages must be on the same site (same origin).
    The simulator is JES2 on SYSA: it decides when a submitted job runs (initiators, $S/$P, holds,
    data sets in use) and shows OPRASK questions on its console. This terminal keeps the job's JCL,
@@ -765,7 +765,7 @@ function linkSubmit(job){
   save();
 }
 function linkCanSubmit(){
-  if(!LINK.ops||!LINK.state||Date.now()-LINK.seen>15000){setMsg('NO OPERATOR','連携モード: オペレーターコンソール（MVS IPL シミュレータ）のタブが見つかりません。シミュレータを連携モードで開いてください。',true);return false;}
+  if(!LINK.ops||!LINK.state||Date.now()-LINK.seen>15000){setMsg('NO OPERATOR','連携モード: オペレーターコンソール（MVS コンソール シミュレータ）のタブが見つかりません。シミュレータを連携モードで開いてください。',true);return false;}
   if(!LINK.state.logon){setMsg('NOT LOGGED ON',`連携モード: ${SYSID} の TSO が動いていないため、ジョブを投入できません。オペレーター側で IPL して S TSO を入力してください。`,true);return false;}
   return true;
 }

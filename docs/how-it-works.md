@@ -182,7 +182,7 @@ SDSF のコマンド行で `/` から始まる入力は `sysCommand()` が処理
 
 ### 連携モード
 
-`?link` を付けて開くと（または、そのタブで一度連携モードにすると）、`linkInit()` が `BroadcastChannel('mvs-link-v1')` を開き、同じサイトの [MVS IPL シミュレータ](https://github.com/son-jo-sokora/mvs-ipl-sim) とメッセージをやり取りします。役割は、シミュレータが JES2（いつ動かすか）、この端末がジョブの中身と結果です。
+`?link` を付けて開くと（または、そのタブで一度連携モードにすると）、`linkInit()` が `BroadcastChannel('mvs-link-v1')` を開き、同じサイトの [MVS コンソール シミュレータ](https://github.com/son-jo-sokora/mvs-console-sim) とメッセージをやり取りします。役割は、シミュレータが JES2（いつ動かすか）、この端末がジョブの中身と結果です。
 
 | 方向 | メッセージ | 意味 |
 |---|---|---|

@@ -227,7 +227,7 @@ TIME、SPIN、FREE、CNTL/ENDCNTL、XMIT、SCHEDULE の AFTER/BEFORE、JOBGROUP�
 COBOL などのコンパイル、自分で作ったプログラムの実行、VSAM、TSO コマンド（IKJEFT01）、複数ユーザーでの共有、実機との接続。
 
 **オペレーターコンソールとの連携（連携モード）**
-[MVS IPL シミュレータ](https://son-jo-sokora.github.io/mvs-ipl-sim/)（z/OS の IPL・停止を練習するシミュレータ）と、別のタブでつなげます。シミュレータで「連携モード」を押して「jcl-terminal を開く」を押すか、この端末を `?link` を付けて開きます（例: https://son-jo-sokora.github.io/jcl-terminal/?link ）。
+[MVS コンソール シミュレータ](https://son-jo-sokora.github.io/mvs-console-sim/)（z/OS のオペレーター操作を練習するシミュレータ）と、別のタブでつなげます。シミュレータで「連携モード」を押して「jcl-terminal を開く」を押すか、この端末を `?link` を付けて開きます（例: https://son-jo-sokora.github.io/jcl-terminal/?link ）。
 
 - この端末は、シミュレータのシステム SYSA に TSO でログオンした利用者 USER01 になります。シミュレータ側で TSO が動いていないと、ジョブは投入できません。
 - `SUB` したジョブを実際に動かすタイミングは、シミュレータの JES2 が決めます。`$S` の前やイニシエーターを止めている間は入力キューで待ちます。ほかのジョブがデータセットを使っているときは、`IEF099I` で待ちます。
