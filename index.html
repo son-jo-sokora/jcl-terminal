@@ -178,7 +178,7 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
     <h2>対応範囲</h2>
     <p>プログラム: IEFBR14、IEBGENER、SORT（ICEMAN）、IDCAMS（LISTCAT・DELETE・PRINT・REPRO）。それ以外の PGM は S806 で ABEND します。</p>
     <p>JCL: JOB / EXEC / DD / SET / IF・ELSE・ENDIF / PROC・PEND / JCLLIB / INCLUDE、COND、DISP、DD *、DUMMY、SYSOUT、&amp;SYSUID などのシンボル、後方参照（DSN=*.STEP.DD）。</p>
-    <p class="note">実機ではなく、ブラウザ上で動くシミュレーションです。メッセージは実際の z/OS を参考にした近似で、番号や文面が実機と異なるものがあります。JCK で始まるメッセージはこの端末独自のヒントです。作ったデータセットとジョブはこのブラウザにだけ保存されます。</p>
+    <p class="note">実機ではなく、ブラウザ上で動くシミュレーションです。メッセージは実際の z/OS を参考にした近似で、番号や文面が実機と異なるものがあります。JCK で始まるメッセージと、末尾に <code>(SIMULATOR MESSAGE)</code> と付いた IEFC633I（キーワードの重複）はこの端末独自のものです。作ったデータセットとジョブはこのブラウザにだけ保存されます。</p>
     <button class="btn" id="reset">初期状態に戻す</button>
   </aside>
 </div>
@@ -947,7 +947,8 @@ function convert(lines){
         if(callsProc){if(k.includes('.')&&!allowed.includes(k.split('.')[0]))E(`IEFC630I UNIDENTIFIED KEYWORD ${k}`);}
         else if(!allowed.includes(k))E(`IEFC630I UNIDENTIFIED KEYWORD ${k}`);
       }
-      for(const k of st.p.dups)E(`IEFC633I DUPLICATE KEYWORD ${k}`);
+      // No z/OS 3.2 message matches a duplicate keyword, so this ID is the simulator's own and says so
+      for(const k of st.p.dups)E(`IEFC633I DUPLICATE KEYWORD ${k} (SIMULATOR MESSAGE - NOT A Z/OS MESSAGE)`);
       if(VALIDATE[op])VALIDATE[op](st,E);
     }
     if(it.data){
