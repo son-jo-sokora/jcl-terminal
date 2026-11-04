@@ -173,7 +173,7 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
     <h2>その他の機能</h2>
     <div class="keytbl">
       <b>GDG</b><span>IDCAMS の <code>DEFINE GENERATIONDATAGROUP</code> / <code>DELETE ... GDG FORCE</code> / <code>LISTCAT</code>。<code>DSN=名前(+1)</code> で新しい世代、<code>(0)</code> <code>(-1)</code> で既存の世代、名前だけなら全世代を新しい順に連結します。相対番号はジョブの中で固定されます</span>
-      <b>JES2 文</b><span><code>/*JOBPARM</code>（SYSAFF・LINES・COPIES など）、<code>/*PRIORITY</code>、<code>/*ROUTE PRINT</code>、<code>/*MESSAGE</code>、<code>/*NOTIFY</code>、<code>/*XEQ</code>。不正な指定は無視され、JESMSGLG に <code>$HASP119</code> が出ます。SYSAFF がほかのシステムだと、ジョブは入力キューで待ち続けます</span>
+      <b>JES2 文</b><span><code>/*JOBPARM</code>（SYSAFF・LINES・COPIES など）、<code>/*PRIORITY</code>、<code>/*ROUTE PRINT</code>、<code>/*MESSAGE</code>、<code>/*NOTIFY</code>、<code>/*XEQ</code>。誤りがあると JESYSMSG に <code>$HASP111</code>〜<code>$HASP118</code> が出て、ジョブは実行されません。SYSAFF がほかのシステムだと、ジョブは入力キューで待ち続けます</span>
       <b>OUTPUT 文</b><span>CLASS・DEST・COPIES・DEFAULT=YES・JESDS。DD 側は <code>OUTPUT=*.名前</code> と <code>SYSOUT=(,)</code> で参照します</span>
       <b>DD</b><span>VOL=SER / VOL=REF（ボリューム違いは S213-04）、LIKE / REFDD / DCB=参照、DDNAME=、RETPD / EXPDT（期限前の削除は不可、IDCAMS は PURGE で可）、PATH 一式（<kbd>=3.17</kbd> でファイル一覧）、OUTLIM（超過で S722）、COPIES、DEST、HOLD、SPIN、FREE</span>
       <b>JOB / EXEC</b><span>JOBRC、RESTART、JOB の COND、TYPRUN=HOLD / JCLHOLD / SCAN / COPY、REGION（不足すると S80A。JOB 側が優先）、JOBLIB / STEPLIB、IF の ABENDCC、EXPORT、SCHEDULE HOLDUNTL</span>
@@ -424,13 +424,14 @@ GDGRUN:[
 JES2CTL:[
 "/*PRIORITY 12",
 "//JES2CTL  JOB (ACCT),'USER01',CLASS=A,MSGCLASS=X,NOTIFY=&SYSUID",
-"/*JOBPARM SYSAFF=*,LINES=1,ROOM=B12,BADKEY=1",
+"/*JOBPARM SYSAFF=*,LINES=1,ROOM=B12",
 "/*ROUTE PRINT RMT5",
 "/*MESSAGE JES2CTL HAS BEEN SUBMITTED",
-"/*NOTAVERB THIS IS NOT A JES2 CONTROL STATEMENT",
 "//* JES2 CONTROL STATEMENTS START WITH /* IN COLUMNS 1-2.",
 "//* /*PRIORITY GOES IN FRONT OF THE JOB STATEMENT.",
-"//* SEE JESMSGLG FOR /*MESSAGE AND $HASP119, AND DEST RMT5 IN ?.",
+"//* SEE JESMSGLG FOR /*MESSAGE, AND DEST RMT5 IN ?.",
+"//* AN ERROR IN A JES2 STATEMENT (TRY LINES=ABC) STOPS THE JOB",
+"//* WITH $HASP112 IN JESYSMSG.",
 "//STEP1    EXEC PGM=IEBGENER",
 "//SYSPRINT DD SYSOUT=*",
 "//SYSIN    DD DUMMY",
@@ -628,10 +629,12 @@ function defaults(){
     'SYS1.PROCLIB':pds(SYSPROCLIB)
   }};
 }
+// ?test (used by tests/run.html) starts from the samples and never touches the saved data
+const TESTMODE=/[?&]test\b/.test(location.search);
 let S;
-try{S=JSON.parse(localStorage.getItem(LSKEY)||'null');}catch(e){S=null;}
+try{S=TESTMODE?null:JSON.parse(localStorage.getItem(LSKEY)||'null');}catch(e){S=null;}
 if(!S||S.v!==1||!S.catalog) S=defaults();
-function save(){try{localStorage.setItem(LSKEY,JSON.stringify(S));}catch(e){}}
+function save(){if(TESTMODE)return;try{localStorage.setItem(LSKEY,JSON.stringify(S));}catch(e){}}
 // add samples introduced after this browser first saved its data
 if(!S.seen)S.seen=['HELLO','ALLOC','SORT','IFTEST','CLEANUP','BADJCL','ABEND'];
 {const lib=S.catalog[USER+'.JCL'],d=new Date();
@@ -688,6 +691,9 @@ const FMT=(E,f)=>E(`IEFC632I FORMAT ERROR IN THE ${f} FIELD`);
 const LEN=(E,f)=>E(`IEFC642I EXCESSIVE PARAMETER LENGTH IN THE ${f} FIELD`);
 const MUT=(E,a,b,st='DD')=>E(`IEFC009I KEYWORD ${a} IS MUTUALLY EXCLUSIVE WITH KEYWORD ${b} ON THE ${st} STATEMENT.`);
 const UNITS=['SYSDA','SYSALLDA','SYSSQ','VIO','SYSVIO','3390','3380','TAPE','CART','3490','3590'];
+const TAPEUNITS=['TAPE','CART','3490','3590'];
+const SCHENVS=['BATCH','DB2PROD'];          // scheduling environments in the WLM service definition
+const SUBSYSTEMS=['JES2','MSTR','SMS'];       // defined subsystems (none of them supports SUBSYS=)
 const STEPREF=/^[A-Z@#$][A-Z0-9@#$]{0,7}(\.[A-Z@#$][A-Z0-9@#$]{0,7})?$/;
 function checkCond(v,E,jobLevel){
   const items=sub(v);let tests=[];
@@ -703,16 +709,20 @@ function checkRegion(v,E){if(!/^\d{1,7}[KM]$/.test(v))FMT(E,'REGION');}
 function checkDsn(v,E){
   if(v===''){FMT(E,'DSNAME');return;}
   if(v.startsWith('*.')||v==='NULLFILE')return;
+  if(v.startsWith('(')){E('IEFC625I INCORRECT USE OF PARENTHESIS IN THE DSNAME FIELD');return;}
   const m=v.match(/^([^()]*)(?:\(([^()]*)\))?$/);
   if(!m){FMT(E,'DSNAME');return;}
   const dsn=m[1],mem=m[2];
   if(dsn.startsWith('&&')){if(!/^&&[A-Z@#$][A-Z0-9@#$]{0,7}$/.test(dsn))(dsn.length>10?LEN:FMT)(E,'DSNAME');}
   else{
     if(dsn.includes('&')){E('IEFC627I INCORRECT USE OF AMPERSAND IN THE DSNAME FIELD');return;}
+    const bad=(dsn.match(/[^A-Z0-9@#$.\-]/)||[])[0];
+    if(bad){E(bad==='+'?'IEFC626I INCORRECT USE OF PLUS IN THE DSNAME FIELD':bad==='*'?'IEFC628I INCORRECT USE OF ASTERISK IN THE DSNAME FIELD':bad==='/'?'IEFC650I INCORRECT USE OF SLASH IN THE DSNAME FIELD':`IEFC620I UNIDENTIFIABLE CHARACTER ${bad} IN THE DSNAME FIELD`);return;}
     if(dsn.length>44){LEN(E,'DSNAME');return;}
     const qs=dsn.split('.');
     if(qs.some(q=>q==='')){E('IEFC624I INCORRECT USE OF PERIOD IN THE DSNAME FIELD');return;}
     if(qs.some(q=>q.length>8)){LEN(E,'DSNAME');return;}
+    if(qs.some(q=>/^[0-9-]/.test(q))){E('IEFC647I FIRST CHARACTER OF NAME MUST BE ALPHABETIC OR NATIONAL IN THE DSNAME FIELD');return;}
     if(qs.some(q=>!/^[A-Z@#$][A-Z0-9@#$-]*$/.test(q))){FMT(E,'DSNAME');return;}
   }
   if(mem!==undefined&&!/^([A-Z@#$][A-Z0-9@#$]{0,7}|[+-]?\d{1,3})$/.test(mem))FMT(E,'DSNAME');
@@ -739,7 +749,14 @@ const VALIDATE={
   JOB(st,E){const{kw,pos}=st.p;
     if(kw.CLASS!==undefined&&!/^[A-Z0-9]$/.test(kw.CLASS))FMT(E,'CLASS');
     if(kw.MSGCLASS!==undefined&&!/^[A-Z0-9]$/.test(kw.MSGCLASS))FMT(E,'MSGCLASS');
-    if(kw.MSGLEVEL!==undefined){const m=sub(kw.MSGLEVEL);if(m.length>2||!/^[0-2]?$/.test(m[0]||'')||(m[1]!==undefined&&!/^[01]$/.test(m[1])))FMT(E,'MSGLEVEL');}
+    // a bad MSGLEVEL is only a warning: the installation default (1,1) is used
+    if(kw.MSGLEVEL!==undefined){const m=sub(kw.MSGLEVEL);if(m.length>2)FMT(E,'MSGLEVEL');
+      else if(!/^[0-2]?$/.test(m[0]||'')||(m[1]!==undefined&&!/^[01]$/.test(m[1])))E(`IEFC041I INVALID MSGLEVEL, DEFAULTS (${/^[0-2]?$/.test(m[0]||'')?m[0]||1:1},${m[1]!==undefined&&/^[01]$/.test(m[1])?m[1]:1}) USED`,'W');}
+    if(kw.SCHENV!==undefined){const v=sub(kw.SCHENV);
+      if(v.length!==1||!v[0]||v[0].length>16||!/^[A-Z0-9@#$_]+$/.test(v[0]))E('IEFC691I INCORRECT USE OF THE SCHENV FIELD');
+      else if(!SCHENVS.includes(v[0]))E(`IEFC690I SCHEDULING ENVIRONMENT ${v[0]} DOES NOT EXIST IN THE WLM SERVICE DEFINITION`);}
+    if(kw.SYSTEM!==undefined&&kw.SYSAFF!==undefined)E('$HASP110 %JOB% Illegal JOB card - SYSTEM and SYSAFF cannot both be specified');
+    if(pos[1]!==undefined&&pos[1].startsWith('('))E('IEFC641I IMPROPER SUBPARAMETER LIST ON THE JOB STATEMENT');
     if(kw.NOTIFY!==undefined&&!/^[A-Z@#$][A-Z0-9@#$]{0,7}$/.test(kw.NOTIFY))FMT(E,'NOTIFY');
     if(kw.TYPRUN!==undefined&&!['SCAN','HOLD','JCLHOLD','COPY'].includes(kw.TYPRUN))FMT(E,'TYPRUN');
     if(kw.TIME!==undefined)checkTime(kw.TIME,E);
@@ -753,7 +770,13 @@ const VALIDATE={
   },
   EXEC(st,E){const{kw,pos}=st.p;
     if(kw.PGM!==undefined){const v=kw.PGM;
-      if(!v.startsWith('*.')){if(v.length>8)LEN(E,'PGM');else if(!NAME_RE.test(v))FMT(E,'PGM');}
+      if(!v.startsWith('*.')){if(v.length>8)LEN(E,'PGM');
+        else if(/^[0-9]/.test(v))E('IEFC647I FIRST CHARACTER OF NAME MUST BE ALPHABETIC OR NATIONAL IN THE PGM FIELD');
+        else if(v.includes('-'))E('IEFC651I INCORRECT USE OF HYPHEN IN THE PGM FIELD');
+        else if(!NAME_RE.test(v))FMT(E,'PGM');}
+      else if(!/^\*\.[A-Z@#$][A-Z0-9@#$]{0,7}(\.[A-Z@#$][A-Z0-9@#$]{0,7}){1,2}$/.test(v))FMT(E,'PGM');}
+    if(kw.DYNAMNBR!==undefined&&!(/^\d{1,4}$/.test(kw.DYNAMNBR)&&+kw.DYNAMNBR<=3273))E('IEF674I INVALID DYNAMNBR VALUE - 0 SUBSTITUTED','W');
+    if(kw.PGM!==undefined){
       if(kw.PROC!==undefined||pos.length)MUT(E,'PGM','PROC','EXEC');}
     if(kw.PARM!==undefined&&unq(kw.PARM).length>100)LEN(E,'PARM');
     if(kw.PARM!==undefined&&kw.PARMDD!==undefined)MUT(E,'PARM','PARMDD','EXEC');
@@ -762,8 +785,17 @@ const VALIDATE={
     if(kw.REGION!==undefined)checkRegion(kw.REGION,E);
   },
   DD(st,E){const{kw,pos}=st.p;
-    for(const p of pos)if(p!==''&&!['*','DATA','DUMMY'].includes(p))E(`IEFC630I UNIDENTIFIED KEYWORD ${p.slice(0,8)}`);
+    for(const p of pos)if(p!==''&&!['*','DATA','DUMMY'].includes(p)){E('IEFC024I INVALID POSITIONAL PARAMETER ON THE DD STATEMENT');break;}
     if(pos.filter(Boolean).length>1)FMT(E,'POSITIONAL');
+    const sysin=pos.includes('*')||pos.includes('DATA');
+    if(kw.DLM!==undefined&&!sysin)E('IEFC652I DLM INCORRECTLY SPECIFIED ON A NON SYSIN DD STATEMENT (ONE THAT DOES NOT CONTAIN A * OR DATA PARAMETER)');
+    for(const k of['SYMBOLS','SYMLIST'])if(kw[k]!==undefined&&!sysin)E(`IEFC659I ${k} INCORRECTLY SPECIFIED ON A NON SYSIN DD STATEMENT (ONE THAT DOES NOT CONTAIN A * OR DATA PARAMETER)`);
+    if(kw.SUBSYS!==undefined){const s=sub(kw.SUBSYS)[0]||'';
+      if(!s)E('IEFC744I SUBSYSTEM NOT SPECIFIED');
+      else if(s.length>4||!/^[A-Z@#$][A-Z0-9@#$]*$/.test(s))E('IEFC748I SUBSYSTEM NAME INVALID');
+      else if(!SUBSYSTEMS.includes(s))E(`IEFC746I SUBSYSTEM ${s} DOES NOT EXIST`);
+      else E(`IEFC745I SUBSYSTEM ${s} DOES NOT SUPPORT THE SUBSYSTEM KEY WORD`);}
+    if(kw.SYSOUT!==undefined&&kw.DEST!==undefined&&sub(kw.SYSOUT)[1]&&sub(kw.DEST)[1])E('IEF619I SUBPARAMETER IN SYSOUT FIELD IS MUTUALLY EXCLUSIVE WITH SUBPARAMETER IN DEST FIELD');
     const dsn=kw.DSN!==undefined?kw.DSN:kw.DSNAME;
     if(dsn!==undefined)checkDsn(unq(dsn),E);
     if(kw.SYSOUT!==undefined){
@@ -771,10 +803,16 @@ const VALIDATE={
       for(const k of['DISP','SPACE','UNIT','VOL','VOLUME'])if(kw[k]!==undefined){MUT(E,'SYSOUT',k);break;}
     }
     if(kw.DISP!==undefined){const d=sub(kw.DISP);
-      if(d.length>3||!['','NEW','OLD','SHR','MOD'].includes(d[0])||(d[1]!==undefined&&!['','DELETE','KEEP','PASS','CATLG','UNCATLG'].includes(d[1]))||(d[2]!==undefined&&!['','DELETE','KEEP','CATLG','UNCATLG'].includes(d[2])))FMT(E,'DISP');}
+      if(d.some(x=>x.startsWith('(')))E('IEFC616I SUBLIST WITHIN SUBLIST INCORRECT IN THE DISP FIELD');
+      else if(d.length>3)E('IEFC640I EXCESSIVE NUMBER OF POSITIONAL PARAMETERS IN THE DISP FIELD');
+      else if(!['','NEW','OLD','SHR','MOD'].includes(d[0])||(d[1]!==undefined&&!['','DELETE','KEEP','PASS','CATLG','UNCATLG'].includes(d[1]))||(d[2]!==undefined&&!['','DELETE','KEEP','CATLG','UNCATLG'].includes(d[2])))FMT(E,'DISP');
+      // a temporary data set cannot be kept or cataloged; the system passes it instead
+      const dn=unq(kw.DSN||kw.DSNAME||'');
+      if(dn.startsWith('&&')&&['KEEP','CATLG'].includes(d[1]))E('IEF648I INVALID DISP FIELD - PASS SUBSTITUTED','W');}
     if(kw.SPACE!==undefined){const s=sub(kw.SPACE);const q=sub(s[1]||'');
-      if(!/^(TRK|CYL|\d{1,5})$/.test(s[0]||'')||s[1]===undefined||!/^\d{1,8}$/.test(q[0]||'')||q.length>3||q.slice(1).some(x=>!/^\d{0,8}$/.test(x))||s.slice(2).some(x=>!['','RLSE','CONTIG','MXIG','ALX','ROUND'].includes(x)))FMT(E,'SPACE');}
-    if(kw.UNIT!==undefined&&!/^[A-Z0-9@#$\/]{1,8}$/.test(sub(kw.UNIT)[0]||''))FMT(E,'UNIT');
+      if(s[0]==='')E('IEFC646I REQUIRED POSITIONAL PARAMETER MISSING IN THE SPACE FIELD');
+      else if(!/^(TRK|CYL|\d{1,5})$/.test(s[0]||'')||s[1]===undefined||!/^\d{1,8}$/.test(q[0]||'')||q.length>3||q.slice(1).some(x=>!/^\d{0,8}$/.test(x))||s.slice(2).some(x=>!['','RLSE','CONTIG','MXIG','ALX','ROUND'].includes(x)))FMT(E,'SPACE');}
+    if(kw.UNIT!==undefined&&!/^AFF=[A-Z@#$][A-Z0-9@#$]{0,7}$/.test(kw.UNIT)&&!/^[A-Z0-9@#$\/]{1,8}$/.test(sub(kw.UNIT)[0]||''))FMT(E,'UNIT');
     const dcb=kw.DCB!==undefined?parseParams(sub(kw.DCB).join(',')):{kw:{},pos:[]};
     for(const k of Object.keys(dcb.kw))if(!['RECFM','LRECL','BLKSIZE','DSORG','BUFNO','KEYLEN','OPTCD','EROPT','NCP','BFALN'].includes(k))E(`IEFC630I UNIDENTIFIED KEYWORD ${k}`);
     const recfm=kw.RECFM||dcb.kw.RECFM,lrecl=kw.LRECL||dcb.kw.LRECL,blk=kw.BLKSIZE||dcb.kw.BLKSIZE,dsorg=kw.DSORG||dcb.kw.DSORG;
@@ -782,18 +820,20 @@ const VALIDATE={
     if(lrecl!==undefined&&lrecl!=='X'&&!(/^\d{1,5}$/.test(lrecl)&&+lrecl>=1&&+lrecl<=32760))FMT(E,'LRECL');
     if(blk!==undefined&&!(/^\d{1,5}$/.test(blk)&&+blk<=32760))FMT(E,'BLKSIZE');
     if(dsorg!==undefined&&!['PS','PO','DA','IS','POU','PSU'].includes(dsorg))FMT(E,'DSORG');
-    if(kw.DLM!==undefined&&unq(kw.DLM).length!==2)FMT(E,'DLM');
+    if(kw.DLM!==undefined&&sysin&&unq(kw.DLM).length!==2)E('$HASP107 %JOB% Non-valid DD statement, value for DLM keyword not valid');
     if(kw.DSNTYPE!==undefined&&!['LIBRARY','PDS','BASIC','LARGE','EXTREQ','EXTPREF','HFS','PIPE'].includes(sub(kw.DSNTYPE)[0]))FMT(E,'DSNTYPE');
     // VOL=SER=x / VOL=(,,,,SER=x) / VOL=REF=x
     const vol=kw.VOL!==undefined?kw.VOL:kw.VOLUME;
     if(vol!==undefined){const vp=parseParams(vol.startsWith('(')?sub(vol).join(','):vol);
       if(vp.kw.SER!==undefined&&!sub(vp.kw.SER).every(s=>/^[A-Z0-9@#$]{1,6}$/.test(s)))FMT(E,'VOLUME');
+      else if(vp.kw.SER!==undefined){const v=sub(vp.kw.SER),d=v.find((s,k)=>v.indexOf(s)!==k);if(d)E(`IEFC035I DUPLICATE VOLUME SERIAL ${d} FOUND`);}
       if(vp.kw.REF!==undefined&&!(vp.kw.REF.startsWith('*.')||/^[A-Z@#$][A-Z0-9@#$.-]{0,43}$/.test(vp.kw.REF)))FMT(E,'VOLUME');
       if(vp.kw.SER===undefined&&vp.kw.REF===undefined)FMT(E,'VOLUME');}
     const lab=kw.LABEL!==undefined?parseParams(sub(kw.LABEL).join(',')):{kw:{},pos:[]};
     if(kw.LABEL!==undefined){const p2=lab.pos[1];if(p2!==undefined&&p2!==''&&!['SL','NL','AL','SUL','AUL','NSL','LTM','BLP'].includes(p2))FMT(E,'LABEL');}
     const ex=kw.EXPDT||lab.kw.EXPDT,rp=kw.RETPD||lab.kw.RETPD;
     if(ex!==undefined&&!checkDate(ex))FMT(E,'EXPDT');
+    else if(ex!==undefined&&/^\d{4}\/000$/.test(ex))E('IEF604I EXPDT SUBPARAMETER OF LABEL KEYWORD SPECIFIES ZERO DAYS VALUE');
     if(rp!==undefined&&!(/^\d{1,5}$/.test(rp)&&+rp<=93000))FMT(E,'RETPD');
     if(ex!==undefined&&rp!==undefined)MUT(E,'EXPDT','RETPD');
     if(kw.PATH!==undefined){const p=unq(kw.PATH);if(!p.startsWith('/')||p.length>255)FMT(E,'PATH');
@@ -804,11 +844,12 @@ const VALIDATE={
     if(kw.PATHDISP!==undefined&&!sub(kw.PATHDISP).every(x=>['','KEEP','DELETE'].includes(x)))FMT(E,'PATHDISP');
     if(kw.FILEDATA!==undefined&&!['TEXT','BINARY','RECORD'].includes(kw.FILEDATA))FMT(E,'FILEDATA');
     if(kw.SPIN!==undefined&&!/^(NO|UNALLOC|\(UNALLOC,.+\))$/.test(kw.SPIN))FMT(E,'SPIN');
-    if(kw.FREE!==undefined&&!['END','CLOSE'].includes(kw.FREE))FMT(E,'FREE');
-    if(kw.HOLD!==undefined&&!['YES','NO','Y','N'].includes(kw.HOLD))FMT(E,'HOLD');
+    // FREE, HOLD and COPIES errors are warnings: the system uses the default
+    if(kw.FREE!==undefined&&!['END','CLOSE'].includes(kw.FREE))E('IEF682I FREE VALUE INVALID - DEFAULT OF (END) SUBSTITUTED','W');
+    if(kw.HOLD!==undefined&&!['YES','NO','Y','N'].includes(kw.HOLD))E('IEF684I HOLD VALUE INVALID - DEFAULT OF ‘NO’ SUBSTITUTED','W');
     if(kw.OUTLIM!==undefined&&!(/^\d{1,8}$/.test(kw.OUTLIM)&&+kw.OUTLIM<=16777215))FMT(E,'OUTLIM');
     if(kw.OUTLIM!==undefined&&kw.SYSOUT===undefined)E('IEFC030I KEYWORD OUTLIM SPECIFIED WITHOUT REQUIRED KEYWORD SYSOUT ON THE DD STATEMENT.');
-    if(kw.COPIES!==undefined&&!/^\d{1,3}$/.test(sub(kw.COPIES)[0]||''))FMT(E,'COPIES');
+    if(kw.COPIES!==undefined){const n=sub(kw.COPIES)[0]||'';if(!/^\d{1,3}$/.test(n)||+n<1||+n>255)E('IEF681I INVALID COPIES VALUE - DEFAULT OF ONE SUBSTITUTED','W');}
     if(kw.AVGREC!==undefined&&!['U','K','M'].includes(kw.AVGREC))FMT(E,'AVGREC');
     if(kw.LIKE!==undefined)checkDsn(unq(kw.LIKE),E);
     if(kw.REFDD!==undefined&&!/^\*\.[A-Z@#$][A-Z0-9@#$.]*$/.test(kw.REFDD))FMT(E,'REFDD');
@@ -836,7 +877,7 @@ function splitDecks(lines){
 }
 
 /* ---------- phase 1: read card images into raw statements (no symbols resolved yet) ---------- */
-function readCards(lines){
+function readCards(lines,inProc){
   const items=[];let i=0;const L=k=>lines[k]||'';
   while(i<lines.length){
     const full=L(i),raw=clean(full.slice(0,71));
@@ -874,7 +915,7 @@ function readCards(lines){
           it.texts.push(nx);
           if(lead>13){it.cerrs.push({m:'IEFC621I EXPECTED CONTINUATION NOT RECEIVED',line:i});i++;break;}
           i++;operand+=takeOperand(nx.slice(2).trimStart());
-        }else{it.cerrs.push({m:'IEFC621I EXPECTED CONTINUATION NOT RECEIVED',line:i-1});break;}
+        }else{it.cerrs.push({m:inProc&&i>=lines.length?'IEFC022I UNEXPECTED END OF PROCEDURE':'IEFC621I EXPECTED CONTINUATION NOT RECEIVED',line:i-1});break;}
       }
       if(operand.endsWith(','))operand=operand.slice(0,-1);
     }
@@ -923,7 +964,7 @@ function sysSymbols(){
 const JES2_VERBS={
   JOBPARM:'BYTES B CARDS C COPIES N FORMS F LINECT K LINES L NOLOG J PAGES P PROCLIB PROC RESTART E ROOM R SYSAFF S TIME T'.split(' '),
   OUTPUT:null,ROUTE:null,PRIORITY:null,MESSAGE:null,NOTIFY:null,XEQ:null,SETUP:null,SIGNON:null,SIGNOFF:null,NETACCT:null,XMIT:null,
-  JOBPRTY:null
+  DEL:null,EOF:null,PURGE:null,SCAN:null
 };
 function convert(lines){
   const listing=[],errs=[],stmts=[];
@@ -950,12 +991,21 @@ function convert(lines){
     if(op!=='IF'){subd=substitute(operand,vals,onUse);if(subd!==operand&&!['JOB','SET','PROC'].includes(op))listing.push({no:'',t:'IEFC653I SUBSTITUTION JCL - '+subd,sub:true});}
     st.raw=subd;
     if(!op||!OPS.includes(op)){E('IEFC605I UNIDENTIFIED OPERATION FIELD');st.bad=true;return st;}
+    if(op==='SET'&&splitTop(subd).some(x=>!/^[A-Z@#$][A-Z0-9@#$]{0,7}=/.test(x)))E('IEFC010I SYNTAX ERROR IN THE SYMBOL FIELD OF THE SET STATEMENT');
+    // * or DATA that comes from a symbol cannot make a DD statement in-stream data
+    if(op==='DD'){const a=splitTop(operand)[0]||'',b=splitTop(subd)[0]||'';if(a.includes('&')&&(b==='*'||b==='DATA'))E('IEFC654I ILLEGAL USE OF SYMBOLIC ON SYSIN STATEMENT');}
     if(name&&!(op==='DD'?STEPREF:NAME_RE).test(name))E('IEFC662I INVALID LABEL');
-    if((op==='JOB'||op==='PROC')&&!name)E('IEFC662I INVALID LABEL');
+    if(op==='JOB'&&!name)E('IEFC635I JOBNAME MISSING ON THE JOB STATEMENT. SPECIFY JOBNAME AND RE-SUBMIT.');
+    if(op==='PROC'&&!name)E('IEFC663I NO LABEL ON THE PROC STATEMENT');
+    if(op==='COMMAND'){st.p={pos:[],kw:{},dups:[]};st.command=unq(subd.trim());return st;}
     if(op==='IF'){
       const m=operand.match(/^(.*?)\s*\bTHEN\b/);
       if(!m){E('IEFC016I ERROR IN IF STATEMENT');st.expr='TRUE';}
-      else{st.expr=m[1];try{evalIf(st.expr,{maxrc:0,abend:false,steps:{}});}catch(e){E('IEFC016I ERROR IN IF STATEMENT');st.expr='TRUE';}}
+      else{st.expr=m[1];const ce=checkIf(st.expr);
+        if(ce){E(ce);st.expr='TRUE';}
+        else try{const r=evalIf(st.expr,{maxrc:0,abend:false,steps:{}},true);
+          if(typeof r!=='boolean'){E('IEFC014I ERROR IN IF STATEMENT: EXPRESSION MUST BE EVALUATED TO TRUE OR FALSE');st.expr='TRUE';}}
+        catch(e){E('IEFC016I ERROR IN IF STATEMENT');st.expr='TRUE';}}
       st.refs=(st.expr.match(/[A-Z@#$][A-Z0-9@#$]*(?=\.(?:RC|ABEND|RUN|ABENDCC)\b)/g)||[]);
       st.p={pos:[],kw:{},dups:[]};
       return st;
@@ -963,10 +1013,18 @@ function convert(lines){
     const bal=balance(subd);
     if(bal){
       if(bal.t==='P')E('IEFC622I UNBALANCED PARENTHESIS');
-      else E(`IEFC624I INCORRECT USE OF APOSTROPHE IN THE ${bal.kw} FIELD`);
+      else E(`IEFC629I INCORRECT USE OF APOSTROPHE IN THE ${bal.kw} FIELD`);
       st.p={pos:/(^|,)(\*|DATA)(,|$)/.test(subd)?['*']:[],kw:{},dups:[]};st.balErr=true;
     }else{
       st.p=parseParams(subd);
+      if(['JOB','EXEC','DD','OUTPUT'].includes(op)){
+        const parts=splitTop(subd),isKw=x=>/^[A-Z][A-Z0-9]*(\.[A-Z@#$][A-Z0-9@#$]*)?=/.test(x);
+        const fk=parts.findIndex(isKw);
+        if(fk>=0&&parts.slice(fk+1).some(x=>x!==''&&!isKw(x)))E('IEFC006I POSITIONAL PARAMETERS MUST BE SPECIFIED BEFORE KEYWORD PARAMETERS');
+        if(op==='EXEC'&&fk===0&&!/^(PGM|PROC)=/.test(parts[0]))E('IEFC032I REQUIRED PARAMETER PROC OR PGM MUST PRECEDE ALL OTHER PARAMETERS ON THE EXEC STATEMENT');
+        // a closing parenthesis must be followed by a comma, another parenthesis or the end of the operand
+        let q=false;for(let k=0;k<subd.length-1;k++){const ch=subd[k];if(ch==="'")q=!q;else if(!q&&ch===')'&&!/[,)\s]/.test(subd[k+1])){E('IEFC618I OPERAND FIELD DOES NOT TERMINATE IN COMMA OR BLANK');break;}}
+      }
       const callsProc=op==='EXEC'&&st.p.kw.PGM===undefined;
       const allowed=KW[op];
       if(allowed)for(const k of Object.keys(st.p.kw)){
@@ -1017,17 +1075,22 @@ function convert(lines){
   function findProc(name){
     if(instream[name])return{type:'instream',name,items:instream[name].body,procItem:instream[name].item};
     const f=findMember(name,jcllib);
-    return f?{type:'lib',name,lib:f.lib,sys:f.sys,items:readCards(f.lines)}:null;
+    return f?{type:'lib',name,lib:f.lib,sys:f.sys,items:readCards(f.lines,true)}:null;
   }
   function expandProc(ex,proc,ovr,depth){
     const isIn=proc.type==='instream',P=isIn?'++':'XX',PO=isIn?'+/':'X/';
     const errLine=isIn?null:ex.line;
-    if(!isIn)listing.push({no:'',t:`IEFC001I PROCEDURE ${proc.name} WAS EXPANDED USING ${proc.sys?'SYSTEM':'PRIVATE'} LIBRARY ${proc.lib}`,sub:true});
+    listing.push({no:'',t:`IEFC001I PROCEDURE ${proc.name} WAS EXPANDED USING ${isIn?'INSTREAM PROCEDURE DEFINITION':`${proc.sys?'SYSTEM':'PRIVATE'} LIBRARY ${proc.lib}`}`,sub:true});
     const items=proc.items.slice();
     let procItem=proc.procItem||null;
     if(!isIn){const f=items.find(x=>x.kind==='stmt');if(f&&f.op==='PROC')procItem=f;}
+    if(!items.some(x=>x.kind==='stmt'&&x.op==='EXEC'))errAt(ex.no,ex.line,'IEFC610I PROCEDURE HAS NO STEP');
+    // in a cataloged procedure a PEND may only be the last statement
+    if(!isIn){const sts=items.filter(x=>x.kind==='stmt'),pk=sts.findIndex(x=>x.op==='PEND');if(pk>=0&&pk<sts.length-1)errAt(ex.no,ex.line,'IEFC008I PEND STATEMENT FOUND BEFORE END OF PROCEDURE');}
     const defaults={};
-    if(procItem)for(const[k,v]of Object.entries(parseParams(procItem.operand).kw))defaults[k]=unq(substitute(v,gsym,onG));
+    if(procItem)for(const[k,v]of Object.entries(parseParams(procItem.operand).kw)){
+      if(KW.EXEC.includes(k))errAt(ex.no,ex.line,'IEFC007I EXEC STATEMENT KEYWORDS ARE RESERVED AND CANNOT BE USED AS SYMBOLIC PARAMETERS');
+      defaults[k]=unq(substitute(v,gsym,onG));}
     // EXEC operands: keyword.procstep, keyword for every step, or symbolic parameter
     const execVals={},allOv={},stepOv={};
     for(const[k,v]of Object.entries(ex.p.kw)){
@@ -1041,6 +1104,8 @@ function convert(lines){
     const pUsed=new Set();const onP=n=>{used.add(n);pUsed.add(n);};
     const stepNames=items.filter(x=>x.kind==='stmt'&&x.op==='EXEC').map(x=>x.name||'');
     for(const s of Object.keys(stepOv))if(!stepNames.includes(s))errAt(ex.no,ex.line,'IEFC611I OVERRIDDEN STEP NOT FOUND IN PROCEDURE');
+    // the program a procedure step runs cannot be overridden
+    if(Object.values(stepOv).some(o=>'PGM' in o)||'PGM' in execVals)errAt(ex.no,ex.line,'IEFC609I INVALID OVERRIDE KEYWORD PGM');
     const lastStep=stepNames[stepNames.length-1];
     const ovMap={};
     for(const o of ovr){
@@ -1062,7 +1127,7 @@ function convert(lines){
       const pf=x.pfx||P;
       if(x===procItem){listRaw(x,pf);continue;}
       if(x.op==='PEND'){if(!isIn)listRaw(x,pf);continue;}
-      if(['JOB','PROC','JCLLIB'].includes(x.op)){const st=emit(x,pf,vals,onP,errLine);errAt(st.no,st.line,`IEFC019I MISPLACED ${x.op} STATEMENT`);continue;}
+      if(['JOB','PROC','JCLLIB'].includes(x.op)){const st=emit(x,pf,vals,onP,errLine);errAt(st.no,st.line,x.op==='PROC'?'IEFC658I PROC VERB STATEMENT OUT OF SEQUENCE':`IEFC019I MISPLACED ${x.op} STATEMENT`);continue;}
       if(x.op==='EXEC'){
         flush();
         const st=emit(x,pf,vals,onP,errLine);
@@ -1100,32 +1165,46 @@ function convert(lines){
     for(const k of Object.keys(execVals))if(!pUsed.has(k))errAt(ex.no,ex.line,`IEFC657I THE SYMBOL ${k} WAS NOT USED`);
   }
 
-  // JES2 control statements are read by JES2 before conversion; they never stop the job
+  // JES2 control statements are read by JES2 before conversion. An error is written to JESYSMSG and
+  // the job goes to the output queue without running (z/OS JES2 Messages, $HASP111-$HASP118).
   function doJes2(it){
     listing.push({no:'',t:it.t});
-    const W=(m)=>errs.push({no:0,m,line:it.line,sev:'W',jes:true});
-    if(!(it.verb in JES2_VERBS)){errs.push({no:0,m:`JCK006W /*${it.verb} IS NOT A JES2 CONTROL STATEMENT. JES2 IGNORES IT`,line:it.line,sev:'H'});return;}
+    const F=(m)=>errs.push({no:0,m:`${m.slice(0,8)} %JOB% ${m.slice(9)}`,line:it.line,sev:'E'});
+    if(!(it.verb in JES2_VERBS)){F('$HASP118 Invalid JECL statement');return;}
     const op=it.operand.replace(/\s{2,}.*$/,'');
+    const DEST=/^(LOCAL|ANYLOCAL|N1|N1\.[A-Z0-9@#$]{1,8}|[UR]M?\d{1,5}|[A-Z@#$][A-Z0-9@#$]{0,7})$/;
     switch(it.verb){
       case 'JOBPARM':{
-        const pp=parseParams(op.split(/\s/)[0]);
-        for(const[k,v]of Object.entries(pp.kw)){
-          if(!JES2_VERBS.JOBPARM.includes(k)){W(`$HASP119 JOBPARM KEYWORD ${k} IS NOT VALID - IGNORED`);continue;}
+        const parts=splitTop(op.split(/\s/)[0]);
+        for(const p of parts){
+          const m=p.match(/^([A-Z]+)=(.*)$/);
+          if(!m){F('$HASP112 Invalid /*JOBPARM card - unknown positional operand');return;}
+          const[,k,v]=m;
+          if(!JES2_VERBS.JOBPARM.includes(k)){F(`$HASP112 Invalid /*JOBPARM card - ${k}= not valid for this job type`);return;}
           const K={B:'BYTES',C:'CARDS',N:'COPIES',F:'FORMS',K:'LINECT',L:'LINES',J:'NOLOG',P:'PAGES',PROC:'PROCLIB',E:'RESTART',R:'ROOM',S:'SYSAFF',T:'TIME'}[k]||k;
-          if(['LINES','CARDS','PAGES','BYTES','TIME','COPIES'].includes(K)&&!/^\d{1,6}$/.test(v)){W(`$HASP119 JOBPARM ${K}=${v} IS NOT VALID - IGNORED`);continue;}
+          if(['LINES','CARDS','PAGES','BYTES','TIME','COPIES','LINECT'].includes(K)&&!/^\d{1,6}$/.test(v)){F(`$HASP112 Invalid /*JOBPARM card - value of ${k}= parameter is not valid`);return;}
+          if(['NOLOG','RESTART'].includes(K)&&!['Y','N'].includes(v)){F(`$HASP112 Invalid /*JOBPARM card - value of ${k}= must be Y or N`);return;}
           jes2.jobparm[K]=sub(v)[0];
         }
         break;}
       case 'PRIORITY':
-        if(/^\d{1,2}$/.test(op)&&+op<=15)jes2.priority=+op;else W(`$HASP119 /*PRIORITY ${op} IS NOT VALID - IGNORED`);break;
+        if(/^\d{1,2}$/.test(op)&&+op<=15)jes2.priority=+op;else errs.push({no:0,m:`JCK007W /*PRIORITY ${op} IS NOT 0-15`,line:it.line,sev:'H'});break;
       case 'ROUTE':{
-        const m=op.match(/^(PRINT|PUNCH|PRT|PUN|XEQ)\s+(\S+)/);
-        if(!m)W('$HASP119 /*ROUTE OPERAND IS NOT VALID - IGNORED');
-        else if(m[1]==='XEQ')jes2.xeq=m[2];else if(m[1].startsWith('PR'))jes2.route=m[2];
+        const w=op.split(/\s+/).filter(Boolean);
+        if(!['PRINT','PUNCH','PRT','PUN','XEQ'].includes(w[0])){F('$HASP111 Invalid /*ROUTE card - PRINT, PUNCH, OR XEQ required');return;}
+        if(!w[1]){F('$HASP111 Invalid /*ROUTE card - missing positional operand');return;}
+        if(w[0]==='XEQ'){if(w[1]!==NODE){F('$HASP114 Invalid /*ROUTE XEQ card - INVALID EXECUTION NODE');return;}jes2.xeq=w[1];}
+        else{if(!DEST.test(w[1])){F('$HASP111 Invalid /*ROUTE card - destination not valid');return;}if(w[0].startsWith('PR'))jes2.route=w[1];}
+        break;}
+      case 'OUTPUT':{
+        const w=op.split(/\s+/);
+        if(!/^[A-Z0-9@#$]{1,4}$/.test(w[0]||'')){F('$HASP113 Invalid /*OUTPUT card - incorrect code value');return;}
+        const pp=parseParams(w.slice(1).join(''));
+        if(pp.kw.COPIES!==undefined&&!(/^\d{1,3}$/.test(pp.kw.COPIES)&&+pp.kw.COPIES<=255)){F('$HASP113 Invalid /*OUTPUT card - value of COPIES= exceeds 255');return;}
         break;}
       case 'MESSAGE':jes2.messages.push(it.operand);break;
-      case 'NOTIFY':if(NAME_RE.test(op))jes2.notify=op;else W('$HASP119 /*NOTIFY USERID IS NOT VALID - IGNORED');break;
-      case 'XEQ':jes2.xeq=op.split(/\s/)[0]||null;break;
+      case 'NOTIFY':if(NAME_RE.test(op))jes2.notify=op;else F('$HASP116 Invalid /*NOTIFY card - userid not valid');break;
+      case 'XEQ':{const n=op.split(/\s/)[0];if(n!==NODE){F('$HASP114 Invalid /*XEQ card - INVALID EXECUTION NODE');return;}jes2.xeq=n;break;}
     }
   }
 
@@ -1140,7 +1219,9 @@ function convert(lines){
     if(x.op==='PROC'){
       // in-stream procedure definition: list it now, expand it when an EXEC calls it
       const pno=listRaw(x,x.pfx||'//');
-      if(!x.name||!NAME_RE.test(x.name))errAt(pno,x.line,'IEFC662I INVALID LABEL');
+      if(!x.name)errAt(pno,x.line,'IEFC663I NO LABEL ON THE PROC STATEMENT');
+      else if(!NAME_RE.test(x.name))errAt(pno,x.line,'IEFC662I INVALID LABEL');
+      if(Object.keys(instream).length>=15)errAt(pno,x.line,'IEFC665I EXCESSIVE NUMBER OF INSTREAM PROCEDURES');
       const body=[];let ended=false;
       for(k++;k<its.length;k++){
         const y=its[k];
@@ -1152,13 +1233,16 @@ function convert(lines){
       if(x.name)instream[x.name]={item:x,body};
       continue;
     }
-    if(x.op==='PEND'){const st=emit(x,x.pfx||'//',gsym,onG);errAt(st.no,st.line,'IEFC019I MISPLACED PEND STATEMENT');continue;}
+    if(x.op==='PEND'){const st=emit(x,x.pfx||'//',gsym,onG);errAt(st.no,st.line,'IEFC668I PEND VERB STATEMENT OUT OF SEQUENCE');continue;}
     if(x.op==='JCLLIB'){
       const st=emit(x,x.pfx||'//',gsym,onG);
-      if(jcllib||sawExec)errAt(st.no,st.line,'IEFC019I MISPLACED JCLLIB STATEMENT');
+      if(sawExec)errAt(st.no,st.line,'IEFC019I MISPLACED JCLLIB STATEMENT');
+      else if(jcllib)errAt(st.no,st.line,'IEFC020I DUPLICATE JCLLIB STATEMENT');
       else if(st.p&&st.p.kw.ORDER!==undefined){
         jcllib=sub(st.p.kw.ORDER).map(unq).filter(Boolean);
-        for(const lib of jcllib)if(!S.catalog[lib]||S.catalog[lib].dsorg!=='PO')errAt(st.no,st.line,'IEFC004I OPEN OF JCLLIB DATASETS WAS NOT SUCCESSFUL');
+        // a library that does not exist cannot be allocated (IEFC003I); one that is not a PDS cannot be opened (IEFC004I)
+        if(jcllib.some(lib=>!S.catalog[lib]))errAt(st.no,st.line,'IEFC003I ALLOCATION ERROR IN PROCESSING A JCLLIB STATEMENT');
+        else if(jcllib.some(lib=>S.catalog[lib].dsorg!=='PO'))errAt(st.no,st.line,'IEFC004I OPEN OF JCLLIB DATASETS WAS NOT SUCCESSFUL');
       }
       continue;
     }
@@ -1192,7 +1276,7 @@ function convert(lines){
       case 'JOB':job.stmt=st;break;
       case 'EXEC':{
         const pgm=st.p.kw.PGM;
-        cur={name:st.name||'',invoker:st.invoker||'',no:st.no,line:st.line,pgm:pgm||'',parm:unq(st.p.kw.PARM),cond:st.p.kw.COND,region:st.p.kw.REGION,ifs:ifs.map(x=>({expr:x.expr,want:!x.inElse})),dds:[],outputs:{}};
+        cur={name:st.name||'',invoker:st.invoker||'',no:st.no,line:st.line,pgm:pgm||'',parm:unq(st.p.kw.PARM),parmdd:st.p.kw.PARMDD,cond:st.p.kw.COND,region:st.p.kw.REGION,ifs:ifs.map(x=>({expr:x.expr,want:!x.inElse,no:x.no})),dds:[],outputs:{}};
         if(!pgm&&!st.balErr){const pr=st.p.kw.PROC||st.p.pos[0]||'';EE(st,pr?`IEFC612I PROCEDURE ${pr} WAS NOT FOUND`:'IEFC632I FORMAT ERROR IN THE PGM FIELD');}
         const sid=cur.invoker?`${cur.invoker}.${cur.name}`:cur.name;
         if(st.name&&seen.has(sid))EE(st,`JCK002W STEP NAME ${sid} IS ALSO USED BY AN EARLIER STEP`,'H');
@@ -1200,12 +1284,15 @@ function convert(lines){
         if(cur.invoker)seen.add(cur.invoker);
         job.steps.push(cur);break;}
       case 'DD':
+        if(st.name==='JOBCAT'||st.name==='STEPCAT'){EE(st,'IEFC034I JOBCAT OR STEPCAT NOT PERMITTED');break;}
         if(!cur){
           if(st.name==='JOBLIB')job.joblib=st;
-          else if(st.name!=='JOBCAT')EE(st,'IEFC019I MISPLACED DD STATEMENT');
+          else if(st.name==='SYSCHK')job.syschk=st;
+          else EE(st,'IEFC019I MISPLACED DD STATEMENT');
         }
         else if(st.name==='JOBLIB')EE(st,'IEFC019I MISPLACED JOBLIB DD STATEMENT');
         else{
+          if(!st.name&&!cur.dds.length)EE(st,'IEF617I NO NAME ON FIRST DD STATEMENT AFTER EXEC STATEMENT');
           if(st.name&&cur.dds.some(d=>d.name===st.name))EE(st,`JCK003W DDNAME ${st.name} IS DUPLICATED IN STEP ${cur.name||'(NO NAME)'}`,'H');
           cur.dds.push(st);
         }
@@ -1215,8 +1302,9 @@ function convert(lines){
         ifs.push({expr:st.expr,inElse:false,no:st.no,line:st.line});break;
       case 'ELSE':if(!ifs.length)EE(st,'IEFC005I ELSE STATEMENT WITHOUT MATCHING IF STATEMENT');else ifs[ifs.length-1].inElse=true;break;
       case 'ENDIF':if(!ifs.length)EE(st,'IEFC005I ENDIF STATEMENT WITHOUT MATCHING IF STATEMENT');else ifs.pop();break;
+      case 'COMMAND':errs.push({no:st.no,m:`IEFC165I ${st.command}`,line:st.line,sev:'I',jes:true});break;
       case 'OUTPUT':
-        if(!st.name)EE(st,'IEFC662I INVALID LABEL');
+        if(!st.name)EE(st,'IEFC031I MISSING LABEL ON THE OUTPUT STATEMENT');
         else(cur?cur.outputs:job.outputs)[st.name]=st.p.kw;
         break;
       case 'SCHEDULE':if(cur)EE(st,'IEFC019I MISPLACED SCHEDULE STATEMENT');else job.schedule=st.p.kw;break;
@@ -1245,13 +1333,53 @@ function convert(lines){
   }
   if(ifs.length){const x=ifs[ifs.length-1];errs.push({no:x.no,m:'IEFC005I IF STATEMENT WITHOUT MATCHING ENDIF STATEMENT',line:x.line,sev:'E'});}
   if(job.stmt&&!job.steps.length)EE(job.stmt,'IEFC607I JOB HAS NO STEPS');
+  if(job.steps.length>255)EE(job.stmt||job.steps[255],'IEFC602I EXCESSIVE NUMBER OF EXECUTE STATEMENTS');
+  // DDNAME= references inside each step
+  job.steps.forEach((s,k)=>{
+    const refs=s.dds.filter(d=>d.p.kw.DDNAME!==undefined);if(!refs.length)return;
+    const nextNo=(job.steps[k+1]||{}).no;
+    const open=refs.filter(d=>!s.dds.some(x=>x.name===d.p.kw.DDNAME));
+    if(open.length>5)EE(open[5],'IEF631I NUMBER OF DDNAMES EXCEEDS MAXIMUM');
+    else for(const d of open)errs.push({no:nextNo||d.no,m:'IEF686I DDNAME REFERRED TO ON DDNAME KEYWORD IN PRIOR STEP WAS NOT RESOLVED',line:d.line,sev:'W'});
+    const tg={};for(const d of refs){const t=d.p.kw.DDNAME;if(tg[t]){EE(d,'IEF654I MULTIPLE DDNAMES REFER TO ONE DD STATEMENT');}tg[t]=1;}
+    for(const d of refs){const i=s.dds.findIndex(x=>x.name===d.p.kw.DDNAME);if(i>=0&&s.dds[i+1]&&!s.dds[i+1].name)errs.push({no:d.no,m:'IEF694I DDNAME REFERENCE TO DD CONCATENATION REFERS ONLY TO FIRST DD',line:d.line,sev:'W'});}
+  });
+  // *.stepname.ddname must name a DD in an earlier step (or *.ddname an earlier DD in the same step)
+  const refOk=(k,dd,r)=>{const p=r.slice(2).split('.');const ddn=p.pop();
+    if(!p.length)return job.steps[k].dds.slice(0,job.steps[k].dds.indexOf(dd)).some(x=>x.name===ddn);
+    const inv=job.steps[k].invoker;
+    const st=job.steps.slice(0,k).find(s=>p.length===2?(s.invoker===p[0]&&s.name===p[1]):(s.name===p[0]&&(!s.invoker||s.invoker===inv))||(s.invoker===p[0]));
+    return !!(st&&st.dds.some(x=>x.name===ddn));};
+  job.steps.forEach((s,k)=>{
+    for(const d of s.dds){const v=d.p.kw.DSN||d.p.kw.DSNAME;if(v&&v.startsWith('*.')&&!refOk(k,d,v))EE(d,'IEF645I INVALID REFER BACK IN THE DSNAME FIELD');}
+    if(s.pgm.startsWith('*.')&&!refOk(k,null,s.pgm))errs.push({no:s.no,m:'IEF645I INVALID REFER BACK IN THE PGM FIELD',line:s.line,sev:'E'});
+  });
+  // RESTART=(step,checkid) is a deferred checkpoint restart and needs a SYSCHK DD before the first EXEC
+  if(job.stmt&&job.stmt.p&&job.stmt.p.kw.RESTART!==undefined&&sub(job.stmt.p.kw.RESTART).length>1&&!job.syschk)EE(job.stmt,'IEFC660I MISSING SYSCHK DD STATEMENT');
+  // JES2 messages carry the job name
+  const jn=job.stmt&&job.stmt.name||USER+'A';
+  for(const e of errs)e.m=e.m.replace('%JOB%',jn);
+  // warnings where the system used a default value
+  if(errs.some(e=>e.sev==='W'&&/^(IEFC041I|IEF674I|IEF681I|IEF682I|IEF684I|IEF648I)/.test(e.m)))errs.push({no:0,m:`IEFC677I WARNING MESSAGE(S) FOR JOB ${jn} ISSUED`,line:0,sev:'I',jes:true});
   for(const[k,v]of Object.entries(setAt))if(!used.has(k))errs.push({no:v.no,m:`IEFC657I THE SYMBOL ${k} WAS NOT USED`,line:v.line,sev:'W'});
   errs.sort((a,b)=>a.no-b.no);
   return {job,listing,errs,cards:lines.length,hasErr:errs.some(e=>e.sev==='E'),jes2};
 }
 
-function evalIf(expr,ctx){
-  const toks=String(expr).toUpperCase().match(/[A-Z@#$][A-Z0-9@#$]*(?:\.[A-Z@#$][A-Z0-9@#$]*)*|\d+|>=|<=|¬=|\^=|¬|\^|=|>|<|\(|\)|&|\|/g)||[];
+const IF_TOKS=/[A-Z@#$][A-Z0-9@#$]*(?:\.[A-Z@#$][A-Z0-9@#$]*)*|\d+|>=|<=|¬=|\^=|¬|\^|=|>|<|\(|\)|&|\|/g;
+// keyword, type and range errors in an IF expression (IEFC013I / IEFC015I / IEFC033I)
+function checkIf(expr){
+  const toks=String(expr).toUpperCase().match(IF_TOKS)||[];
+  const WORD=/^(RC|ABEND|RUN|ABENDCC|TRUE|FALSE|NOT|AND|OR|GT|GE|LT|LE|EQ|NE|NG|NL)$/,CODE=/^(S[0-9A-F]{3}|U\d{4})$/,ISRC=/(^|\.)RC$/;
+  const OPS_=new Set(['GT','GE','LT','LE','EQ','NE','NG','NL','>','<','>=','<=','=','¬=','^=']);
+  for(const t of toks)if(/^[A-Z@#$]/.test(t)&&!t.includes('.')&&!WORD.test(t)&&!CODE.test(t))return `IEFC013I ERROR IN IF STATEMENT: ${t} NOT VALID`;
+  for(let k=0;k+2<toks.length;k++){const[a,o,b]=[toks[k],toks[k+1],toks[k+2]];if(!OPS_.has(o))continue;
+    if((ISRC.test(a)&&CODE.test(b))||(CODE.test(a)&&ISRC.test(b)))return 'IEFC015I ERROR IN IF STATEMENT: INCOMPATIBLE TYPES IN A COMPARISON';
+    if((ISRC.test(a)&&/^\d+$/.test(b)&&+b>4095)||(ISRC.test(b)&&/^\d+$/.test(a)&&+a>4095))return 'IEFC033I ERROR IN IF STATEMENT: RC GREATER THAN MAXIMUM 4095';}
+  return null;
+}
+function evalIf(expr,ctx,raw){
+  const toks=String(expr).toUpperCase().match(IF_TOKS)||[];
   let p=0;const peek=()=>toks[p],next=()=>toks[p++];
   const CMP={GT:'>',GE:'>=',LT:'<',LE:'<=',EQ:'=',NE:'!=',NG:'<=',NL:'>=','>':'>','<':'<','>=':'>=','<=':'<=','=':'=','¬=':'!=','^=':'!='};
   function val(t){
@@ -1278,7 +1406,7 @@ function evalIf(expr,ctx){
   }
   function and(){let v=prim();while(peek()==='&'||peek()==='AND'){next();const r=prim();v=v&&r;}return v;}
   function or(){let v=and();while(peek()==='|'||peek()==='OR'){next();const r=and();v=v||r;}return v;}
-  const r=or();if(p<toks.length)throw new Error('bad');return !!r;
+  const r=or();if(p<toks.length)throw new Error('bad');return raw?r:!!r;
 }
 
 function condBypass(cond,ctx){
@@ -1643,7 +1771,7 @@ function runJob(job){
   for(const m of conv.jes2.messages)ML(`${job.name} ${m}`);
   let outcome;
   const jesErrs=conv.errs.filter(e=>e.sev!=='H'&&!e.jes);
-  if(jesErrs.length){sysmsg.push(' STMT NO. MESSAGE');for(const e of jesErrs)sysmsg.push(lpad(e.no,9)+' '+e.m);}
+  if(jesErrs.length){sysmsg.push(' STMT NO. MESSAGE');for(const e of jesErrs)sysmsg.push(lpad(e.no||'',9)+' '+e.m);}
   if(job.typrun==='COPY'){
     // TYPRUN=COPY: JES2 prints the job as submitted and does not run it
     ML(`$HASP396 ${pad(job.name,8)} TERMINATED`);
@@ -1730,21 +1858,34 @@ function execute(job,conv,io){
       restart=null;
     }
     // decide whether this step runs
-    let run;
+    // why a step is skipped decides the message: IEF206I (IF), IEF202I (COND), or only IEF272I after an abend
+    let run,why=null;
     const ifTestsAbend=step.ifs.some(x=>/ABEND/i.test(x.expr));
-    if(jobCondHit)run=false;
+    const condWhy=()=>{if(!condBypass(step.cond,ctx))return null;const c=step.cond||'';
+      if(ctx.abend&&!/EVEN|ONLY/.test(c))return 'ABEND';if(!ctx.abend&&/ONLY/.test(c))return 'ONLY';return 'COND';};
+    if(jobCondHit){run=false;why='JOB';}
     else if(step.ifs.length){
-      let ok=true;
-      try{for(const x of step.ifs)if(evalIf(x.expr,ctx)!==x.want)ok=false;}catch(e){ok=true;}
-      run=ok&&(!ctx.abend||ifTestsAbend||/EVEN|ONLY/.test(step.cond||''));
-      if(run&&step.cond)run=!condBypass(step.cond,ctx);
-    }else run=!condBypass(step.cond,ctx);
+      let bad=null;
+      try{for(const x of step.ifs)if(evalIf(x.expr,ctx)!==x.want){bad=x;break;}}catch(e){bad=null;}
+      if(bad){run=false;why={ifno:bad.no};}
+      else if(ctx.abend&&!ifTestsAbend&&!/EVEN|ONLY/.test(step.cond||'')){run=false;why='ABEND';}
+      else{why=step.cond?condWhy():null;run=!why;}
+    }else{why=condWhy();run=!why;}
     if(!run){
-      sysmsg.push(` IEF272I ${job.name} ${who} - STEP WAS NOT EXECUTED.`);
+      if(why==='COND')sysmsg.push(` IEF202I ${job.name} ${who} - STEP WAS NOT RUN BECAUSE OF CONDITION CODES`);
+      else if(why==='ONLY')sysmsg.push(` IEF202I ${job.name} ${who} - STEP WAS NOT RUN BECAUSE OF COND=ONLY`);
+      else if(why&&why.ifno)sysmsg.push(` IEF206I ${job.name} ${who} - STEP WAS NOT RUN BECAUSE OF CONDITIONAL EXPRESSION ON STATEMENT ${why.ifno}`);
+      if(why!=='JOB')sysmsg.push(` IEF272I ${job.name} ${who} - STEP WAS NOT EXECUTED.`);
       ML(`-${tbl} FLUSH      0      0    .00    .00    .00      0  BATCH        0     0     0     0`);
       rec({run:false});
       continue;
     }
+    // PGM=*.step.ddname runs the member named by that DD; the step must have run and the DD be a data set
+    let pgmName=step.pgm;
+    if(pgmName.startsWith('*.')){const r=refOf(pgmName,sn);
+      if(!r){sysmsg.push(` IEF221I ${job.name} ${who} - PGM=*.DD - REFERENCED STEP WAS NOT EXECUTED - OR DATA SET TYPE INVALID`,` IEF272I ${job.name} ${who} - STEP WAS NOT EXECUTED.`);
+        ML(`-${tbl}*FLUSH*     0      0    .00    .00    .00      0  BATCH        0     0     0     0`);allocFail=true;rec({run:false});break;}
+      pgmName=splitDsn(r).mem||r.split('.').pop();}
     sysmsg.push(` IEF236I ALLOC. FOR ${job.name} ${who}`);
     // allocation
     const handles={};let last=null,fail=null;
@@ -1805,27 +1946,38 @@ function execute(job,conv,io){
           let{dsn,mem}=splitDsn(full);
           const ds=sub(kw.DISP||'');const status=ds[0]||'NEW';
           const isTemp=dsn.startsWith('&&');
+          const pre=` ${job.name} ${who} ${ddn} -`;
           // VOL=SER= / VOL=REF=
           let volser=null;
           const vk=kw.VOL!==undefined?kw.VOL:kw.VOLUME;
           if(vk!==undefined){
             const vp=parseParams(vk.startsWith('(')?sub(vk).join(','):vk).kw;
             if(vp.SER)volser=sub(vp.SER)[0];
-            else if(vp.REF){const rd=vp.REF.startsWith('*.')?refOf(vp.REF,sn):vp.REF;const re=rd&&S.catalog[splitDsn(rd).dsn];
-              if(!re){sysmsg.push(` IEF212I ${job.name} ${who} ${ddn} - DATA SET NOT FOUND (VOL=REF=${vp.REF})`);fail=true;break;}
+            else if(vp.REF){
+              const same=vp.REF.startsWith('*.')&&vp.REF.split('.').length===2?handles[vp.REF.slice(2)]:null;
+              if(same&&same.type==='path'){sysmsg.push(` IEF692I INVALID REFERENCE TO HIERARCHICAL FILE IN THE VOLUME FIELD`);fail=true;break;}
+              const rd=vp.REF.startsWith('*.')?(same&&same.type==='ds'?same.dsn:refOf(vp.REF,sn)):vp.REF;
+              if(!rd){sysmsg.push(` IEF372I${pre} VOLUME FIELD CONTAINS REFERENCE TO A DD NOT PREVIOUSLY RESOLVED`);fail=true;break;}
+              const re=S.catalog[splitDsn(rd).dsn]||passed[splitDsn(rd).dsn];
+              if(re&&re.dsorg==='GDG'){sysmsg.push(` IEF365I${pre} INVALID REFERENCE TO A GENERATION DATA GROUP NAME`);fail=true;break;}
+              if(!re){sysmsg.push(` IEF212I${pre} DATA SET NOT FOUND (VOL=REF=${vp.REF})`);fail=true;break;}
               volser=re.vol||VOL;}
           }
-          if(volser&&!VOLUMES.includes(volser)){sysmsg.push(` IEF702I ${job.name} ${who} ${ddn} - UNABLE TO ALLOCATE`,`          VOLUME ${volser} IS NOT MOUNTED (AVAILABLE: ${VOLUMES.join(' ')})`);fail=true;break;}
+          if(volser&&unit&&TAPEUNITS.includes(unit)&&VOLUMES.includes(volser)){sysmsg.push(` IEF245I${pre} INCONSISTENT UNIT NAME AND VOLUME SERIAL`);fail=true;break;}
+          if(volser&&!VOLUMES.includes(volser)){sysmsg.push(` IEF702I${pre} UNABLE TO ALLOCATE`,`          VOLUME ${volser} IS NOT MOUNTED (AVAILABLE: ${VOLUMES.join(' ')})`);fail=true;break;}
           // relative generation of a GDG, resolved once per job
           let gdgBase=null;
           if(mem&&/^[+-]?\d+$/.test(mem)&&!isTemp){
+            if(dsn.length>35){sysmsg.push(` IEF219I${pre} GDG GROUP NAME EXCEEDS 35 CHARACTERS`);fail=true;break;}
+            if(!/^(0|[+-][1-9]\d{0,2})$/.test(mem)||Math.abs(+mem)>255){sysmsg.push(` IEF366I${pre} RELATIVE GENERATION NUMBER SPECIFIED FOR GDG CONTAINS SYNTAX ERROR`);fail=true;break;}
             const b=S.catalog[dsn];
-            if(!b||b.dsorg!=='GDG'){sysmsg.push(` IEF212I ${job.name} ${who} ${ddn} - DATA SET NOT FOUND`,`          GDG BASE ${dsn} IS NOT CATALOGED - GENERATION (${mem}) CANNOT BE ALLOCATED`);fail=true;break;}
+            if(!b||b.dsorg!=='GDG'){sysmsg.push(` IEF212I${pre} DATA SET NOT FOUND`,`          GDG BASE ${dsn} IS NOT CATALOGED - GENERATION (${mem}) CANNOT BE ALLOCATED`);fail=true;break;}
             const snap=gdgSnap[dsn]||(gdgSnap[dsn]=gdgGens(dsn));
             const lastNum=snap.length?+snap[snap.length-1].match(GEN_RE)[1]:0;
             const n=+mem;gdgBase=dsn;
             if(n>0)dsn=genName(gdgBase,lastNum+n);
-            else{const g=snap[snap.length-1+n];if(!g){sysmsg.push(` IEF212I ${job.name} ${who} ${ddn} - DATA SET NOT FOUND (${gdgBase}(${mem}))`);fail=true;break;}dsn=g;}
+            // an existing generation that does not exist yet does not match the DISP (IEF286I)
+            else{const g=snap[snap.length-1+n];if(!g){sysmsg.push(` IEF286I${pre} DISP FIELD INCOMPATIBLE WITH DSNAME`,`          GENERATION ${gdgBase}(${mem}) DOES NOT EXIST`);fail=true;break;}dsn=g;}
             mem=null;
           }
           const existing=isTemp?passed[dsn]:(passed[dsn]||S.catalog[dsn]);
@@ -1835,6 +1987,17 @@ function execute(job,conv,io){
               sysmsg.push(` IGD17101I DATA SET ${dsn}`,'  NOT DEFINED BECAUSE DUPLICATE NAME EXISTS IN CATALOG','  RETURN CODE IS 8 REASON CODE IS 38 IGG0CLEH');
               fail=true;break;
             }
+            if(/^AFF=/.test(kw.UNIT||'')){sysmsg.push(` IEF318I ${job.name} ${who} ${ddn} 'UNIT=AFF' INVALID FOR REQUEST SPECIFYING NEW DIRECT ACCESS DATA SET`);fail=true;break;}
+            // SPACE: average block length above a 3390 track, directory larger than primary, or more than a volume holds
+            if(kw.SPACE!==undefined){const sp=sub(kw.SPACE),q=sub(sp[1]||'').map(x=>+x||0);
+              if(/^\d+$/.test(sp[0])&&+sp[0]>56664){sysmsg.push(` IEF258I${pre} INVALID RECORD LENGTH SPECIFIED IN SPACE PARAMETER`);fail=true;break;}
+              if(q[2]&&q[2]>q[0]){sysmsg.push(` IEF267I${pre} DIRECTORY SPACE REQUEST IS LARGER THAN PRIMARY REQUEST`);fail=true;break;}
+              const trk=sp[0]==='CYL'?q[0]*15:sp[0]==='TRK'?q[0]:Math.ceil(q[0]*(+sp[0])/56664);
+              if(trk>150255){sysmsg.push(` IGD17272I VOLUME SELECTION HAS FAILED FOR INSUFFICIENT SPACE FOR DATA SET ${dsn}`,
+                `           JOBNAME (${pad(job.name,8)}) STEPNAME (${pad(sn,8)}) PROGNAME (${pad(pgmName,8)}) DDNAME (${pad(ddn,8)})`,
+                `           REQUESTED SPACE QUANTITY = ${Math.round(trk*56664/1048576)} MB`,
+                `           STORCLAS (STANDARD) MGMTCLAS (        ) DATACLAS (        )`,
+                `           STORGRPS (USERSG  )`);fail=true;break;}}
             // attributes from LIKE= / REFDD= / DCB=model
             let model=null;
             const dcbPos=kw.DCB!==undefined?parseParams(sub(kw.DCB).join(',')).pos[0]:null;
@@ -1867,7 +2030,7 @@ function execute(job,conv,io){
       allocFail=true;rec({run:false});
       break;
     }
-    for(const[n,h]of Object.entries(handles))if(h.type==='ds'&&!h.isTemp){
+    for(const[n,h]of Object.entries(handles))if(h.type==='ds'){
       const v=h.mem?`${h.dsn}(${h.mem})`:h.dsn;refs[`${sn}.${n}`]=v;if(inv)refs[`${inv}.${sn}.${n}`]=v;}
     // run the program
     const logs=[];
@@ -1896,7 +2059,15 @@ function execute(job,conv,io){
           dsWrite(h.entry,h.mem,lines,h.status==='MOD');}
         return true;},
       log:m=>logs.push(m)};
-    let res;const pgm=step.pgm;const prog=PROGRAMS[pgm];
+    // PARMDD= takes the PARM text from a data set (z/OS MVS JCL Reference)
+    if(step.parmdd){const h=handles[step.parmdd];
+      if(!h){sysmsg.push(` IEF689I JOB ${job.name} FAILED PARMDD DID NOT OPEN`,` IEF272I ${job.name} ${who} - STEP WAS NOT EXECUTED.`);allocFail=true;rec({run:false});
+        ML(`-${tbl}*FLUSH*     0      0    .00    .00    .00      0  BATCH        0     0     0     0`);break;}
+      if(h.type==='ds'&&h.entry.dsorg==='PO'&&!h.mem){sysmsg.push(' IEF910I PARMDD DATA SET UNUSABLE.',` IEF272I ${job.name} ${who} - STEP WAS NOT EXECUTED.`);allocFail=true;rec({run:false});break;}
+      const txt=readH(h).map(l=>l.replace(/\s+$/,'')).join('');
+      if(txt.length>32760){sysmsg.push(' IEF911I EXCESSIVE USER PARAMETER STRING LENGTH.',` IEF272I ${job.name} ${who} - STEP WAS NOT EXECUTED.`);allocFail=true;rec({run:false});break;}
+      step.parm=txt;cx.parm=txt;}
+    let res;const pgm=pgmName;const prog=PROGRAMS[pgm];
     // REGION: the JOB value overrides the EXEC value; 0K/0M means no limit
     const reg=jobRegion!==undefined?jobRegion:(step.region?regionK(step.region):null);
     const need=PGM_STORAGE[pgm]||0;
@@ -1918,7 +2089,7 @@ function execute(job,conv,io){
       rec({run:true,abend:false,rc:res.rc});ctx.maxrc=Math.max(ctx.maxrc,res.rc);lastRc=res.rc;
       // JOB COND: once a test is true, the remaining steps are not run
       if(jkw.COND&&!jobCondHit&&condBypass(jkw.COND,{steps:{x:{run:true,rc:res.rc}},abend:false})){
-        jobCondHit=true;sysmsg.push(` JOB COND=${jkw.COND} IS SATISFIED BY RC ${rc4(res.rc)} - REMAINING STEPS ARE NOT RUN`);}
+        jobCondHit=true;sysmsg.push(` IEF201I ${job.name} ${who} - JOB TERMINATED BECAUSE OF CONDITION CODES`);}
     }
     // dispositions
     const all=[];for(const[n,h]of Object.entries(handles)){all.push([n,h]);(h.concat||[]).forEach(x=>all.push([n,x]));}
@@ -2631,7 +2802,7 @@ function jck(sc){
   const add=(k,e)=>{(notes[k]=notes[k]||[]).push(e);if(e.sev==='E'){ne++;marks[k]='E';}else{nw++;if(!marks[k])marks[k]='W';}};
   for(const d of splitDecks(sc.buf)){
     const cv=convert(d);
-    for(const e of cv.errs)add(Math.max(0,d.start+e.line-(d.gen?1:0)),e);
+    for(const e of cv.errs)if(e.sev!=='I')add(Math.max(0,d.start+e.line-(d.gen?1:0)),e);
     if(d.gen)add(d.start,{m:`JCK001W NO JOB STATEMENT. SUB WILL ADD //${USER}A JOB`,sev:'W'});
   }
   sc.buf.forEach((l,k)=>{
@@ -2947,6 +3118,15 @@ function boot(){
   render();
 }
 boot();
+// test hook: run JCL synchronously against a fresh catalog (only with ?test)
+if(TESTMODE)window.JCLTEST={
+  reset(){S=defaults();S.zfs={};},
+  samples(){return Object.keys(SAMPLES);},
+  sample(n){return SAMPLES[n].slice();},
+  addMember(lib,mem,lines){const e=S.catalog[lib];if(e)e.members[mem]={lines:lines.slice(),created:ymd(new Date()),changed:stamp(new Date())};},
+  run(lines){return splitDecks(lines).map(d=>{const j=submitDeck(d);if(!j.status)runJob(j);return j;});},
+  jck(lines){return splitDecks(lines).map(d=>convert(d).errs);}
+};
 })();
 </script>
 </body>

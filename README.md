@@ -42,7 +42,7 @@ IKJ56250I JOB HELLO(JOB01234) SUBMITTED
 7. [改造してみる](#7-改造してみる)
 8. [ライセンスと商標](#8-ライセンスと商標)
 
-詳しい手順は [docs/tutorial.md](docs/tutorial.md)、プログラムの仕組みは [docs/how-it-works.md](docs/how-it-works.md) にあります。
+詳しい手順は [docs/tutorial.md](docs/tutorial.md)、プログラムの仕組みは [docs/how-it-works.md](docs/how-it-works.md)、対応しているエラーメッセージの一覧は [docs/error-catalog.md](docs/error-catalog.md) にあります。
 
 ---
 
@@ -228,6 +228,7 @@ ISPF の CAPS ON と同じ動作です。小文字を使いたいときは、`Co
 
 - **サンプル JCL を追加する**: `const SAMPLES={` の中に、`名前:[ "1行目", "2行目", ... ]` の形で追加します。再読み込みすると、新しいサンプルが `USER01.JCL` に自動で追加されます。保存済みのデータは消えません。
 - **プログラム（PGM=）を追加する**: `const PROGRAMS={` の中に関数を追加します。書き方は [docs/how-it-works.md](docs/how-it-works.md) を見てください。
+- **エラーのテストを流す**: GitHub Pages の `tests/run.html`（またはローカルサーバー上の同じファイル）を開くと、JCL エラーのテスト（約140件）を一度に実行して、成功・失敗を一覧にします。テストは保存データに触れません。テストの中身は [tests/cases.js](tests/cases.js)、マニュアル上の全エラーとの対応は [docs/error-catalog.md](docs/error-catalog.md) にあります。
 
 ---
 
