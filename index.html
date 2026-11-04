@@ -1788,7 +1788,9 @@ function execute(job,conv,io){
         h={type:'path',path,opts,pdisp:sub(kw.PATHDISP||''),created:!exists,dd:ddn};
         sysmsg.push(` IEF237I PATH ALLOCATED TO ${ddn}`);
       }
-      else if(!p.pos.filter(Boolean).length&&!Object.keys(kw).length){h={type:'dummy'};sysmsg.push(` IEF237I DMY  ALLOCATED TO ${ddn||last}`);}
+      // a DD with an empty parameter field asks for a new data set with no SPACE (JCL Reference: leave it
+      // blank only when SMS supplies the description, or to keep a concatenated DD unchanged)
+      else if(!p.pos.filter(Boolean).length&&!Object.keys(kw).length){sysmsg.push(` IEF127I ${job.name} ${who} ${ddn||last} - NO SPACE PARAMETER OR ZERO SPACE REQUEST AT ABSTR ZERO`,`          THE DD STATEMENT HAS NO PARAMETERS. CODE SYSOUT=*, DUMMY, DSN=... OR SPACE=`);fail=true;break;}
       else{
         const unit=kw.UNIT&&sub(kw.UNIT)[0];
         if(unit&&!UNITS.includes(unit)&&!/^AFF=/.test(unit)){sysmsg.push(` IEF210I ${job.name} ${who} ${ddn} - UNIT FIELD SPECIFIES INCORRECT DEVICE NAME`);fail=true;break;}
@@ -2634,6 +2636,8 @@ function jck(sc){
   }
   sc.buf.forEach((l,k)=>{
     if(l.startsWith('//')&&!l.startsWith('//*')&&l.length>71&&l.slice(71).trim())add(k,{m:'JCK004W TEXT IN COLUMNS 72-80 IS NOT PART OF THE STATEMENT',sev:'W'});
+    // //name DD with nothing after it, and no continuation from the line before
+    if(/^\/\/[A-Z@#$][A-Z0-9@#$.]*\s+DD\s*$/.test(l.slice(0,72))&&!/,\s*$/.test((sc.buf[k-1]||'').slice(0,71)))add(k,{m:'JCK005W DD STATEMENT HAS NO PARAMETERS. ALLOCATION WILL FAIL WITH IEF127I',sev:'W'});
   });
   sc.marks=marks;
   if(!ne&&!nw){setMsg('No JCL errors','JCK found no problems. Submit with SUB.',false);return;}
@@ -2659,7 +2663,7 @@ function openSpool(j,s){
   for(const p of parts){
     const cls=p.dd==='JESYSMSG'||p.dd==='JESMSGLG'?'cg':'cg';
     for(const l of p.lines){
-      const red=/(IEFC(?!653|657|001|002)\d{3}I|IEF450I|IEF212I|IEF210I|IEB311I|IGD17101I|ABEND|JCL ERROR|NOT FOUND|IEF272I|ICE0\d\dA|IDC3\d{3}I|IEC1\d\dI|CSV0\d\dI)/.test(l);
+      const red=/(IEFC(?!653|657|001|002)\d{3}I|IEF450I|IEF212I|IEF210I|IEF127I|IEB311I|IGD17101I|ABEND|JCL ERROR|NOT FOUND|IEF272I|ICE0\d\dA|IDC3\d{3}I|IEC1\d\dI|CSV0\d\dI)/.test(l);
       const white=/^\s*(J E S 2|------ JES2|IEF142I|\$HASP|STMT NO\.)/.test(l)||/\$HASP3\d\d/.test(l);
       lines.push({t:l,cls:red?'cr':white?'cw':p.dd==='JESJCL'?'ct':'cg'});
     }
