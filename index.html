@@ -3267,7 +3267,7 @@ function gradeOp(ex){
   return{items,pass:items.every(x=>x.ok),notes};
 }
 function startOp(ex){
-  if(LINK.on){setMsg('LINK MODE','連携モード中はオペレーター演習を使えません。オペレーターの操作はシミュレータのタブで行います。画面下の「連携を切る」で通常に戻せます。',true);render();return;}
+  if(LINK.on){setMsg('LINK MODE','連携モード中はオペレーター演習を使えません。オペレーターの操作はシミュレータのタブで行います。画面右上の「連携を切る」で通常に戻せます。',true);render();return;}
   S.opRun=S.opRun||{};
   const run={from:S.cmdLog.length,jobs:{}};
   for(const lines of ex.scenario||[]){const d=splitDecks(lines)[0];const j=submitDeck(d);run.jobs[j.name]=j.id;startJob(j,0);}
