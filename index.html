@@ -38,7 +38,8 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
 .glass{background:radial-gradient(ellipse at 50% 40%,var(--glass),var(--screen) 75%);border-radius:8px;padding:10px 12px 6px;width:max-content}
 .term{font-family:var(--mono);font-size:var(--fs);line-height:1.38;width:80ch;height:calc(31 * 1.38em);display:flex;flex-direction:column;color:var(--t-green);white-space:pre;overflow:hidden}
 .ln{height:1.38em;flex:none;overflow:hidden}
-.body{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--t-dim) transparent}
+.body{flex:1;min-height:0;overflow:auto;scrollbar-width:none}
+.body::-webkit-scrollbar{display:none}
 .body .ln{overflow:visible;width:max-content;min-width:100%}
 .oia{font-family:var(--mono);font-size:var(--fs);line-height:1.38;width:80ch;white-space:pre;color:var(--t-blue);border-top:1px solid var(--t-dim);margin-top:4px;padding-top:2px}
 .cg{color:var(--t-green)}.ct{color:var(--t-turq)}.cw{color:var(--t-white)}.cy{color:var(--t-yellow)}.cr{color:var(--t-red)}.cb{color:var(--t-blue)}.cp{color:var(--t-pink)}
@@ -48,11 +49,18 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
 .f.lc{color:var(--t-yellow)}
 .pick{cursor:pointer}.pick:hover{text-decoration:underline}
 .pf{cursor:pointer}.pf:hover{color:var(--t-white)}
-.edrow{display:flex;width:max-content}
-.gut{margin:0;font:inherit;line-height:1.38;color:var(--t-turq);user-select:none}
-.ed{font:inherit;line-height:1.38;color:var(--t-green);background:transparent;border:0;outline:none;resize:none;overflow:hidden;white-space:pre;width:73ch;padding:0;margin:0;text-transform:uppercase;caret-color:var(--t-white);display:block}
-.ed.nocaps{text-transform:none}
-.ed::selection,.f::selection{background:var(--t-dim);color:var(--t-white)}
+/* edit panel: prefix (line command) area and data area have no underline, like ISPF with NULLS */
+.f.pfx,.f.dat,.f.pfx:focus,.f.dat:focus{background-image:none}
+.f.pfx,.f.pfx:focus{color:var(--t-turq)}
+.f.pfx.cr,.f.pfx.cr:focus{color:var(--t-red)}.f.pfx.cy,.f.pfx.cy:focus{color:var(--t-yellow)}.f.pfx.cw,.f.pfx.cw:focus{color:var(--t-white)}
+.f.dat,.f.dat:focus{color:var(--t-green)}
+.f.dat.nocaps{text-transform:none}
+.f.scr{width:4ch;color:var(--t-turq)}
+.lmsg{height:0;position:relative;z-index:2;flex:none}
+.lmsg .ln{position:absolute;left:0;right:0;top:0;background:var(--screen)}
+/* 3270 replace mode shows a block cursor; insert mode a bar */
+.term.ovr .f{caret-shape:block}
+.f::selection{background:var(--t-dim);color:var(--t-white)}
 
 .keys{display:flex;flex-wrap:wrap;gap:8px}
 .keys button,.btn{font-family:var(--mono);font-size:13px;background:var(--card);color:var(--ink);border:1px solid var(--line);border-bottom-width:3px;border-radius:6px;padding:7px 12px;cursor:pointer}
@@ -74,7 +82,9 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
 .samples span{color:var(--ink-soft);font-size:13px;line-height:1.5}
 .samples button{font-size:12px;background:none;border:1px solid var(--line);color:var(--accent);border-radius:4px;padding:1px 8px;cursor:pointer;font-family:var(--sans)}
 .samples button:hover{border-color:var(--accent)}
-.keytbl{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
+.keytbl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;font-size:13px}
+.keytbl code,.keytbl kbd{white-space:normal;overflow-wrap:anywhere}
+@media (max-width:1179px){.guide{justify-self:stretch;max-width:min(62ch,100%)}}
 .note{font-size:12.5px;color:var(--ink-soft)}
 #reset{margin-top:6px;font-family:var(--sans);font-size:13px}
 </style>
@@ -109,12 +119,28 @@ body{background:var(--bezel);color:var(--ink);font-family:var(--sans);font-size:
 
     <h2>キー操作</h2>
     <div class="keytbl">
-      <kbd>Enter</kbd><span>コマンド実行（編集エリアでは改行）</span>
-      <kbd>Ctrl+Enter</kbd><span>編集エリアからでもコマンド実行</span>
-      <kbd>F3</kbd><span>戻る（編集中は保存して戻る）。<kbd>Esc</kbd> でも可</span>
-      <kbd>F7 / F8</kbd><span>上下スクロール。<kbd>PgUp</kbd> <kbd>PgDn</kbd> でも可</span>
+      <kbd>Enter</kbd><span>コマンド実行（編集エリアでも実行。改行はしません）</span>
+      <kbd>Shift+Enter</kbd><span>次の行の先頭の入力欄へ（3270 の改行キー）</span>
+      <kbd>Tab</kbd><span>次の入力欄へ。<kbd>Shift+Tab</kbd> で前へ、<kbd>Home</kbd> でコマンド行へ</span>
+      <kbd>↑↓←→</kbd><span>画面上の同じ桁を保って移動</span>
+      <kbd>Insert</kbd><span>上書き／挿入の切り替え（挿入中は下の行に <code>^</code>）</span>
+      <kbd>Ctrl+Del</kbd><span>カーソルから入力欄の終わりまで消す（Erase EOF）</span>
+      <kbd>F3</kbd><span>戻る（編集中は保存して戻る）。<kbd>Esc</kbd> でも可。<kbd>F12</kbd> は保存せずに戻る</span>
+      <kbd>F7 / F8</kbd><span>上下スクロール。<kbd>PgUp</kbd> <kbd>PgDn</kbd> でも可。量は <code>Scroll ===&gt;</code> 欄（CSR／PAGE／HALF／数字）</span>
+      <kbd>F5 / F6</kbd><span>FIND／CHANGE の繰り返し</span>
+      <kbd>F10 / F11</kbd><span>左右スクロール（編集では 73〜80 桁を表示）</span>
       <kbd>=2</kbd><span>編集、<kbd>=3.4</kbd> データセット一覧、<kbd>=SD</kbd> SDSF</span>
     </div>
+
+    <h2>エディタの行コマンド</h2>
+    <p>行番号（<code>000100</code> など）の上に文字を上書きして Enter を押します。残った数字は無視されます。</p>
+    <div class="keytbl">
+      <kbd>I</kbd><span>下に空行を挿入（<kbd>I5</kbd> で5行）。入力して Enter を押すと、次の空行が自動で開きます</span>
+      <kbd>D</kbd><span>行を削除（<kbd>D3</kbd> で3行、<kbd>DD</kbd>〜<kbd>DD</kbd> で範囲）</span>
+      <kbd>R</kbd><span>行を複製（<kbd>RR</kbd>〜<kbd>RR</kbd> で範囲）</span>
+      <span><kbd>C</kbd> <kbd>M</kbd></span><span>コピー／移動。行き先の行に <kbd>A</kbd>（後ろ）か <kbd>B</kbd>（前）。範囲は <kbd>CC</kbd>／<kbd>MM</kbd></span>
+    </div>
+    <p class="note">主コマンド: <code>F 文字列 [ALL]</code>、<code>C 旧 新 [ALL]</code>、<code>L 行番号</code>、<code>TOP</code>、<code>BOT</code>、<code>RESET</code>。空のメンバーは <code>''''''</code> の入力行が並んだ状態で開きます。先頭に行を足すときは <code>******</code> の上に <kbd>I</kbd>。</p>
 
     <h2>サンプル JCL（USER01.JCL）</h2>
     <ul class="samples" id="samples">
@@ -1970,17 +1996,32 @@ function titleLn(left,right){
   if(msg&&msg.short){r=msg.short;cls=msg.err?'cr':'cw';}
   return R(c('cw',pad(left,80-r.length-1))+' '+c(cls,r));
 }
-function longLn(){return msg&&msg.long?R(c(msg.err?'cr':'cw',' '+msg.long)):'';}
+// as in ISPF, the long message covers the line under the command line instead of pushing the screen down
+function longLn(){return msg&&msg.long?`<div class="lmsg"><div class="ln">${c(msg.err?'cr':'cw',' '+msg.long)}</div></div>`:'';}
+// ISPF shows the function keys 6 to a line, each in a 13-column cell ("F10=Left")
 function pfLn(keys){
-  return R(keys.map(([k,t])=>`<span class="pf" data-pf="${k}">${esc(' F'+k+'='+t)}</span>`).join(' '));
+  let h='';
+  for(let r=0;r<keys.length;r+=6)
+    h+=R(' '+keys.slice(r,r+6).map(([k,t])=>`<span class="pf" data-pf="${k}">${esc(pad(lpad('F'+k,3)+'='+t,13))}</span>`).join(''));
+  return h;
 }
-const PF_ISPF=[[1,'Help'],[3,'Exit'],[5,'Rfind'],[7,'Up'],[8,'Down'],[10,'Left'],[11,'Right'],[12,'Cancel']];
-const PF_SDSF=[[1,'HELP'],[3,'END'],[5,'IFIND'],[7,'UP'],[8,'DOWN'],[10,'LEFT'],[11,'RIGHT'],[12,'RETRIEVE']];
-const ISPF_BAR=R(c('cw',' Menu  Utilities  Compilers  Options  Status  Help'))+R(c('cb',' '+'-'.repeat(78)));
-const SDSF_BAR=R(c('cw',' Display  Filter  View  Print  Options  Search  Help'))+R(c('cb',' '+'-'.repeat(78)));
-const EDIT_BAR=R(c('cw','  File  Edit  Edit_Settings  Menu  Utilities  Compilers  Test  Help'))+R(c('cb',' '+'-'.repeat(78)));
-const cmdLn=(label,scroll=true)=>{const w=80-label.length-1-(scroll?17:0);return R(c('cg',label+' ')+inp('cmd',w)+(scroll?c('cg','  Scroll ===> ')+c('ct','CSR'):''));};
-const sdsfCmdLn=()=>R(c('cg','COMMAND INPUT ===> ')+inp('cmd',43)+c('cg','  SCROLL ===> ')+c('ct','CSR'));
+const PF_MENU=[[1,'Help'],[2,'Split'],[3,'Exit'],[7,'Backward'],[8,'Forward'],[9,'Swap'],[10,'Actions'],[12,'Cancel']];
+const PF_EDIT=[[1,'Help'],[2,'Split'],[3,'Exit'],[5,'Rfind'],[6,'Rchange'],[7,'Up'],[8,'Down'],[9,'Swap'],[10,'Left'],[11,'Right'],[12,'Cancel']];
+const PF_LIST=[[1,'Help'],[2,'Split'],[3,'Exit'],[5,'Rfind'],[7,'Up'],[8,'Down'],[9,'Swap'],[10,'Left'],[11,'Right'],[12,'Cancel']];
+const PF_SDSF=[[1,'HELP'],[2,'SPLIT'],[3,'END'],[4,'RETURN'],[5,'IFIND'],[6,'BOOK'],[7,'UP'],[8,'DOWN'],[9,'SWAP'],[10,'LEFT'],[11,'RIGHT'],[12,'RETRIEVE']];
+const bar=t=>R(c('cw',t))+R(c('cb',' '+'-'.repeat(78)));
+const ISPF_BAR=bar(' Menu  Utilities  Compilers  Options  Status  Help');
+const UTIL_BAR=bar(' Menu  Help');
+const DSLP_BAR=bar(' Menu  RefList  RefMode  Utilities  Help');
+const LIST_BAR=bar(' Menu  Options  View  Utilities  Compilers  Help');
+const MEM_BAR=bar(' Menu  Functions  Confirm  Utilities  Help');
+const SDSF_BAR=bar(' Display  Filter  View  Print  Options  Search  Help');
+const EDIT_BAR=bar(' File  Edit  Edit_Settings  Menu  Utilities  Compilers  Test  Help');
+// the scroll amount is a real input field, as in ISPF
+let scrollAmt='CSR';
+const scrInp=()=>`<input class="f scr" id="scroll" maxlength="4" value="${esc(scrollAmt)}" autocomplete="off" spellcheck="false" autocapitalize="characters">`;
+const cmdLn=(label,scroll=true)=>{const w=80-label.length-1-(scroll?17:0);return R(c('cg',label+' ')+inp('cmd',w)+(scroll?c('cg','  Scroll ===> ')+scrInp():''));};
+const sdsfCmdLn=()=>R(c('cg','COMMAND INPUT ===> ')+inp('cmd',43)+c('cg','  SCROLL ===> ')+scrInp());
 
 const RENDER={
 menu(){
@@ -1991,41 +2032,88 @@ menu(){
    ['3','Utilities','Perform utility functions','Screen. . : 1'],
    ['4','Foreground','Interactive language processing','Language. : ENGLISH'],
    ['5','Batch','Submit job for language processing','Appl ID . : ISR'],
-   ['6','Command','Enter TSO or Workstation commands','TSO logon : IKJACCNT'],
+   ['6','Command','Enter TSO commands','TSO logon : ISPF'],
    ['7','Dialog Test','Perform dialog testing','TSO prefix: '+USER],
    ['9','IBM Products','IBM program development products','System ID : '+SYSID],
    ['10','SCLM','SW Configuration Library Manager','MVS acct. : **NONE**'],
-   ['11','Workplace','ISPF Object/Action Workplace','Release . : ISPF 7.6'],
-   ['M','More','Additional IBM Products',''],
+   ['11','Workplace','ISPF Object/Action Workplace','Release . : ISPF 7.5'],
+   ['12','z/OS System','z/OS system programmer applications',''],
+   ['13','z/OS User','z/OS user applications',''],
    ['SD','SDSF','System Display and Search Facility','']];
   let h=ISPF_BAR+titleLn(' '.repeat(28)+'ISPF Primary Option Menu','')+R(c('cg',' Option ===> ')+inp('cmd',66))+longLn()+R('');
   for(const[k,n,dsc,info]of opts)h+=R(`<span class="pick" data-opt="${k}"> ${c('cw',pad(k,3))}${c('ct',pad(n,13))}</span>${c('cg',pad(dsc,40))}${c('ct',info)}`);
-  h+=R('')+R(c('cg','      Enter ')+c('cw','X')+c('cg',' to Terminate using log/list defaults'));
+  h+=R('')+R(c('cg','      Enter ')+c('cw','X')+c('cg',' to Terminate using Log/List defaults'));
   h+=`<div class="body" id="body"></div>`;
-  return h+pfLn(PF_ISPF);
+  return h+pfLn(PF_MENU);
+},
+util(){
+  const opts=[['1','Library','Compress or print data set.  Print index listing.  Print,','rename, delete, browse, edit or view members'],
+   ['2','Data Set','Allocate, rename, delete, catalog, uncatalog, or','display information of an entire data set'],
+   ['3','Move/Copy','Move, or copy members or data sets',''],
+   ['4','Dslist','Print or display (to process) list of data set names.','Print or display VTOC information'],
+   ['5','Reset','Reset statistics for members of ISPF library',''],
+   ['6','Hardcopy','Initiate hardcopy output',''],
+   ['7','Transfer','Download ISPF Client/Server or Transfer data set',''],
+   ['8','Outlist','Display, delete, or print held job output',''],
+   ['9','Commands','Create/change an application command table',''],
+   ['11','Format','Format definition for formatted data Edit/Browse',''],
+   ['12','SuperC','Compare data sets (Standard Dialog)',''],
+   ['13','SuperCE','Compare data sets Extended (Extended Dialog)',''],
+   ['14','Search-For','Search data sets for strings of data (Standard Dialog)',''],
+   ['15','Search-ForE','Search data sets for strings of data Extended',''],
+   ['16','Tables','ISPF Table Utility',''],
+   ['17','Udlist','Print or display (to process) z/OS UNIX directory list','']];
+  let h=UTIL_BAR+titleLn(' '.repeat(28)+'Utility Selection Panel','')+R(c('cg',' Option ===> ')+inp('cmd',66))+longLn()+R('');
+  for(const[k,n,a,b]of opts){
+    h+=R(`<span class="pick" data-opt="${k}"> ${c('cw',lpad(k,2))} ${c('ct',pad(n,13))}</span>${c('cg',a)}`);
+    if(b)h+=R(c('cg',' '.repeat(18)+b));
+  }
+  h+=`<div class="body" id="body"></div>`;
+  return h+pfLn(PF_MENU);
+},
+dslp(sc){
+  let h=DSLP_BAR+titleLn(' '.repeat(29)+'Data Set List Utility','')+R(c('cg',' Option ===> ')+inp('cmd',66))+longLn()+R('');
+  h+=R(c('cg','    ')+c('cw','blank')+c('cg',' Display data set list           ')+c('cw','P ')+c('cg',' Print data set list'));
+  h+=R(c('cg','    ')+c('cw','V    ')+c('cg',' Display VTOC information        ')+c('cw','PV')+c('cg',' Print VTOC information'));
+  h+=R('')+R(c('cg',' Enter one or both of the parameters below:'));
+  h+=R(c('cg','    Dsname Level . . . ')+inp('dslev',44,sc.level));
+  h+=R(c('cg','    Volume serial  . . ')+inp('volser',6,''));
+  h+=R('')+R(c('cg',' Data set list options'))+R(c('cg','    Initial View . . . ')+c('ct','1')+c('cg','  1. Volume   2. Space   3. Attrib   4. Total'));
+  h+=R(c('cg','    Enter "/" to select option'))+R(c('cg','    ')+c('ct','/')+c('cg',' Confirm Data Set Delete      ')+c('ct','/')+c('cg',' Confirm Member Delete'));
+  h+=R('')+R(c('cg',' When the data set list is displayed, enter either:'))+R(c('cg','  "/" on the data set list command field for the command prompt pop-up,'))+R(c('cg','  an ISPF line command, the name of a TSO command, CLIST, or REXX exec, or'))+R(c('cg','  "=" to execute the previous command.'));
+  h+=`<div class="body" id="body"></div>`;
+  return h+pfLn(PF_MENU);
 },
 memlist(sc){
   const e=S.catalog[sc.dsn];
   const names=e?Object.keys(e.members).sort():[];
   const mode=sc.view?'VIEW':'EDIT';
-  let h=ISPF_BAR+titleLn(pad(mode,18)+sc.dsn,`Row ${z(names.length?1:0,5)} of ${z(names.length,5)}`)+cmdLn('Command ===>')+longLn();
+  let h=MEM_BAR+titleLn(pad(mode,18)+sc.dsn,`Row ${z(names.length?1:0,7)} of ${z(names.length,7)}`)+cmdLn('Command ===>')+longLn();
   h+=R(c('cw','           Name     Prompt       Size   Created          Changed          ID'));
   h+='<div class="body" id="body">';
   names.forEach((n,i)=>{const m=e.members[n];const pr=(sc.prompt||{})[n]||'';
     h+=R(lc(i,9,'')+' '+`<span class="pick cy" data-pick="${i}">${esc(pad(n,8))}</span>`+c('cw',' '+pad(pr,10))+c('cg',lpad(m.lines.length,8)+'   '+pad(m.created,10)+'  '+pad(m.changed,19)+'  '+USER));});
   h+=R(c('cb','  **End**'))+'</div>';
   sc.rows=names;
-  return h+pfLn(PF_ISPF);
+  return h+pfLn(PF_LIST);
 },
+// each data line is a 6-column line command field plus a 72-column data field, as in ISPF edit
 edit(sc){
   const label=sc.mem?`${sc.dsn}(${sc.mem})`:sc.dsn;
-  let h=EDIT_BAR+titleLn(` ${sc.view?'VIEW':'EDIT'}       ${label} - 01.00`,'Columns 00001 00072')+cmdLn('Command ===>')+longLn();
+  const col=sc.col||0,pend=sc.pend||{},att=`autocomplete="off" spellcheck="false" autocapitalize="characters"`;
+  const pfx=(i,lab,cls)=>{const p=pend[i];return `<input class="f pfx ${p?'cw':cls}" data-ln="${i}" data-o="${esc(lab)}" style="width:6ch" maxlength="6" value="${esc(p||lab)}" ${att}>`;};
+  let h=EDIT_BAR+titleLn(` ${sc.view?'VIEW':'EDIT'}       ${label} - 01.00`,`Columns ${z(col+1,5)} ${z(col+72,5)}`)+cmdLn('Command ===>')+longLn();
   h+='<div class="body" id="body">';
-  h+=R(c('cr','******')+' '+c('ct',banner('Top of Data',72)));
-  h+=`<div class="edrow"><pre class="gut" id="gut"></pre><textarea id="ed" class="ed" wrap="off" spellcheck="false" autocapitalize="characters" ${sc.view?'readonly':''} aria-label="JCL editor"></textarea></div>`;
+  h+=R(pfx(-1,'******','cr')+' '+c('ct',banner('Top of Data',72)));
+  for(const t of sc.notes||[])h+=R(c('cw','==MSG>')+' '+c('cw',t));
+  sc.buf.forEach((l,i)=>{
+    const mk=sc.marks&&sc.marks[i];
+    const[lab,cls]=sc.ins[i]?["''''''",'cr']:mk==='E'?['==ERR>','cr']:mk==='W'?['==WRN>','cy']:mk==='C'?['==CHG>','cy']:[z((i+1)*100,6),''];
+    h+=R(pfx(i,lab,cls)+' '+`<input class="f dat${sc.caps===false?' nocaps':''}" data-ln="${i}" style="width:72ch" maxlength="72" value="${esc(l.slice(col,col+72))}" ${sc.view?'readonly':''} ${att}>`);
+  });
   h+=R(c('cr','******')+' '+c('ct',banner('Bottom of Data',72)));
   h+='</div>';
-  return h+pfLn(PF_ISPF);
+  return h+pfLn(PF_EDIT);
 },
 browse(sc){
   const sd=sc.sdsf;
@@ -2036,7 +2124,7 @@ browse(sc){
   h+=R(c('cw',banner(sd?'TOP OF DATA':'Top of Data',80)));
   for(const l of sc.lines)h+=R(c(l.cls||'cg',l.t!==undefined?l.t:l));
   h+=R(c('cw',banner(sd?'BOTTOM OF DATA':'Bottom of Data',80)))+'</div>';
-  return h+pfLn(sd?PF_SDSF:PF_ISPF);
+  return h+pfLn(sd?PF_SDSF:PF_LIST);
 },
 sdsfmenu(){
   let h=SDSF_BAR+titleLn('HQX7760 ----------------  SDSF PRIMARY OPTION MENU  ---------------','')+sdsfCmdLn()+longLn()+R('');
@@ -2075,22 +2163,22 @@ dd(sc){
 },
 dslist(sc){
   const names=Object.keys(S.catalog).filter(n=>n===sc.level||n.startsWith(sc.level+'.')).sort();sc.rows=names;
-  let h=ISPF_BAR+titleLn(`DSLIST - Data Sets Matching ${sc.level}`,`Row ${names.length?1:0} of ${names.length}`)+cmdLn('Command ===>')+longLn();
+  let h=LIST_BAR+titleLn(`DSLIST - Data Sets Matching ${sc.level}`,`Row ${names.length?1:0} of ${names.length}`)+cmdLn('Command ===>')+longLn();
   h+=R('')+R(c('cw','Command - Enter "/" to select action                  Message           Volume'))+R(c('cb','-'.repeat(79)));
   h+='<div class="body" id="body">';
   names.forEach((n,i)=>{const e=S.catalog[n];h+=R(lc(i,5,'')+' '+`<span class="pick" data-pick="${i}">${c('ct',pad(n,46))}</span>`+c('cw',pad((sc.prompt||{})[n]||'',18))+c('cg',e.dsorg==='GDG'?'??????':e.vol||VOL));});
   h+=R(c('cb','***************************** End of Data Set list ****************************'))+'</div>';
-  return h+pfLn(PF_ISPF);
+  return h+pfLn(PF_LIST);
 },
 udlist(sc){
   const names=Object.keys(S.zfs).filter(p=>p.startsWith(sc.dir)).sort();sc.rows=names;
-  let h=ISPF_BAR+titleLn(' z/OS UNIX Directory List',`Row ${names.length?1:0} of ${names.length}`)+cmdLn('Command ===>')+longLn();
+  let h=LIST_BAR+titleLn(' z/OS UNIX Directory List',`Row ${names.length?1:0} of ${names.length}`)+cmdLn('Command ===>')+longLn();
   h+=R(c('cg','Pathname . : ')+c('cy',sc.dir))+R('')+R(c('cw','Command Filename                                   Size  Changed             Mode'))+R(c('cb','-'.repeat(79)));
   h+='<div class="body" id="body">';
   names.forEach((p,i)=>{const f=S.zfs[p];h+=R(lc(i,7,'')+' '+`<span class="pick" data-pick="${i}">${c('ct',padx(p.slice(sc.dir.length)||p,38))}</span>`+c('cg',lpad(f.lines.reduce((a,l)=>a+l.length+1,0),10)+'  '+pad(f.changed||'',19)+' '+(f.mode||'')));});
   if(!names.length)h+=R(c('cb',' No files. Write one with a DD PATH= statement (see the DDPARMS sample).'));
   h+='</div>';
-  return h+pfLn(PF_ISPF);
+  return h+pfLn(PF_LIST);
 },
 tso(sc){
   let h='<div class="body" id="body">';
@@ -2103,48 +2191,93 @@ tso(sc){
 function render(){
   const sc=top();
   term.innerHTML=RENDER[sc.id](sc);
-  if(sc.id==='edit')initEditor(sc);
   const b=$('#body');
-  if(b&&sc.scroll!=null)b.scrollTop=sc.scroll;
+  // as in ISPF, a list can scroll until its last line is at the top of the screen
+  if(b&&!['menu','util','dslp','sdsfmenu','tso'].includes(sc.id)){const s=document.createElement('div');s.id='spacer';s.style.height=Math.max(0,b.clientHeight-lineH())+'px';b.appendChild(s);}
+  if(b&&sc.scroll!=null)b.scrollTop=sc.scroll==='BOT'?botTop(b):sc.scroll;
   if(sc.id==='tso'&&b)b.scrollTop=b.scrollHeight;
-  if(fine){const f=(sc.focusEd&&$('#ed'))||$('#cmd');if(f)f.focus({preventScroll:true});}
-  sc.focusEd=false;
+  // bring a line found by FIND (or a new insert line) into view, at the top like ISPF
+  if(b&&sc.reveal!=null){const el=fel('d'+sc.reveal);if(el){const r=el.getBoundingClientRect(),br=b.getBoundingClientRect();if(sc.revealTop||r.top<br.top||r.bottom>br.bottom+1)b.scrollTop+=r.top-br.top;}}
+  if(b)sc.scroll=b.scrollTop;
+  if(fine||sc.focus){const f=(sc.focus&&fel(sc.focus.key))||$('#cmd');if(f){f.focus({preventScroll:true});setCaret(f,sc.focus?sc.focus.p:0);}}
+  sc.focus=null;sc.reveal=null;sc.revealTop=false;
   drawOia();
 }
+let insMode=false,inhibit=false;
 function drawOia(busy){
   const sc=top();
-  oia.textContent=pad(' 4B   '+(busy?'X ()':'    ')+'      '+(sc.id==='tso'?'TSO LINE MODE':'ISPF'),60)+lpad(hms(new Date(),':'),19);
+  const st=busy?'X ()':inhibit?'X <>':'    ';
+  oia.textContent=pad(' 4B   '+st+'   '+(insMode?'^':' ')+'   '+(sc.id==='tso'?'TSO LINE MODE':'ISPF'),60)+lpad(hms(new Date(),':'),19);
+  term.classList.toggle('ovr',!insMode);
 }
-function push(sc){const b=$('#body');if(b&&top())top().scroll=b.scrollTop;syncEdit();stack.push(sc);}
+function push(sc){keepScroll();syncEdit();stack.push(sc);}
 function pop(){syncEdit();if(stack.length>1)stack.pop();}
 function setMsg(short,long,err){msg={short,long,err};}
+function keepScroll(){const b=$('#body'),t=top();if(b&&t)t.scroll=b.scrollTop;}
+const lineH=()=>parseFloat(getComputedStyle(term).fontSize)*1.38;
+// BOTTOM and DOWN MAX show the last page, with Bottom of Data on the last line
+function botTop(b){const s=document.getElementById('spacer');return Math.max(0,b.scrollHeight-(s?s.offsetHeight:0)-b.clientHeight);}
+
+/* ---------- fields and the cursor ---------- */
+// a field is identified by a short key so the cursor can go back to it after the screen is redrawn
+function fkey(el){
+  if(!el||!term.contains(el)||el.tagName!=='INPUT')return null;
+  if(el.id)return '#'+el.id;
+  if(el.classList.contains('dat'))return 'd'+el.dataset.ln;
+  if(el.classList.contains('pfx'))return 'p'+el.dataset.ln;
+  if(el.classList.contains('lc'))return 'l'+el.dataset.row;
+  return null;
+}
+function fel(k){
+  if(!k)return null;const t=k[0],v=k.slice(1);
+  if(t==='#')return document.getElementById(v);
+  if(t==='d')return term.querySelector(`input.dat[data-ln="${v}"]`);
+  if(t==='p')return term.querySelector(`input.pfx[data-ln="${v}"]`);
+  if(t==='l')return term.querySelector(`input.lc[data-row="${v}"]`);
+  return null;
+}
+function curPos(){const a=document.activeElement,k=fkey(a);return k?{key:k,p:a.selectionStart||0}:null;}
+// a 3270 cursor can sit anywhere in a field, even past the data, so pad with blanks to reach it
+function setCaret(f,p){
+  p=Math.max(0,Math.min(p,f.maxLength>0?f.maxLength-1:p));
+  if(p>f.value.length&&!f.readOnly)f.value=padx(f.value,p);
+  try{f.setSelectionRange(p,p);}catch(e){}
+}
 
 /* ---------- editor ---------- */
-function initEditor(sc){
-  const ed=$('#ed'),gut=$('#gut');
-  ed.value=sc.buf.join('\n');
-  ed.classList.toggle('nocaps',sc.caps===false);
-  let lastN=-1;
-  const upd=()=>{
-    const n=ed.value.split('\n').length;
-    if(lastN>=0&&n!==lastN)sc.marks=null; // line numbers moved, old marks no longer line up
-    lastN=n;let g='';
-    for(let k=0;k<n;k++){const mk=sc.marks&&sc.marks[k];
-      g+=mk?`<span class="${mk==='E'?'cr':'cy'}">${mk==='E'?'==ERR>':'==WRN>'}</span> \n`:z((k+1)*100,6)+' \n';}
-    gut.innerHTML=g;ed.style.height=(n*1.38)+'em';
-  };
-  upd();
-  ed.addEventListener('input',()=>{sc.dirty=true;upd();});
-  if(sc.caret!=null){try{ed.setSelectionRange(sc.caret,sc.caret);}catch(e){}}
-}
+// read the screen back into the buffer; returns the line commands typed in the prefix area
 function syncEdit(){
-  const sc=top();if(!sc||sc.id!=='edit')return;
-  const ed=$('#ed');if(!ed)return;
-  sc.buf=(sc.caps===false?ed.value:ed.value.toUpperCase()).split('\n').map(clean);sc.caret=ed.selectionStart;
+  const sc=top();if(!sc||sc.id!=='edit')return [];
+  const col=sc.col||0,cmds=[];
+  sc.typed=sc.typed||{};
+  for(const el of term.querySelectorAll('input.dat')){
+    const i=+el.dataset.ln;if(i>=sc.buf.length)continue;
+    let v=el.value;if(sc.caps!==false)v=v.toUpperCase();
+    const old=sc.buf[i];
+    const nl=clean(padx(old.slice(0,col),col)+padx(v,72).slice(0,72)+old.slice(col+72));
+    if(nl!==old){sc.buf[i]=nl;if(!sc.view)sc.dirty=true;}
+    if(el.dataset.t)sc.typed[i]=true;
+  }
+  // a line command is what was typed over the line number; digits left over from the number are ignored
+  for(const el of term.querySelectorAll('input.pfx')){
+    const o=el.dataset.o,v=el.value.toUpperCase();let last=-1;
+    for(let j=0;j<v.length;j++)if(v[j]!==o[j])last=j;
+    const cmd=v.slice(0,last+1).replace(/\s+/g,'');
+    if(cmd)cmds.push({i:+el.dataset.ln,v:cmd});
+  }
+  return cmds;
+}
+// insert lines nobody typed on disappear, as in ISPF
+function dropIns(sc){
+  const keep=sc.buf.map((l,i)=>!sc.ins[i]||!!(sc.typed&&sc.typed[i]));
+  const nb=[],mk={};
+  sc.buf.forEach((l,i)=>{if(!keep[i])return;if(sc.marks&&sc.marks[i])mk[nb.length]=sc.marks[i];nb.push(l);});
+  sc.buf=nb;sc.ins=nb.map(()=>false);sc.marks=Object.keys(mk).length?mk:null;sc.typed={};
 }
 function saveEdit(sc){
   if(sc.view)return;
   const e=S.catalog[sc.dsn];if(!e)return;
+  dropIns(sc);
   dsWrite(e,sc.mem,sc.buf.slice(),false);sc.dirty=false;save();
 }
 function openEdit(dsn,mem,view){
@@ -2152,9 +2285,134 @@ function openEdit(dsn,mem,view){
   const lines=dsRead(e,mem)||[];
   // like ISPF, data that already has lowercase opens with CAPS OFF
   const caps=!lines.some(l=>/[a-z]/.test(l));
-  push({id:'edit',dsn,mem,view:!!view,buf:lines.length?lines:[''],dirty:false,caps});
-  if(!caps)setMsg('CAPS OFF','Lowercase data found, so CAPS is OFF. Type CAPS ON to change it.',false);
+  // an empty member opens with a screen of insert lines to type on
+  const buf=lines.length?lines.slice():Array(18).fill('');
+  push({id:'edit',dsn,mem,view:!!view,buf,ins:buf.map(()=>!lines.length),dirty:false,caps,col:0,
+    notes:caps?null:['-CAUTION- Profile changed to CAPS OFF (from CAPS ON) because data contains lower','          case characters.']});
   return true;
+}
+
+// I, D, R, C, M, A, B and the block forms DD, RR, CC, MM, as in ISPF edit
+function edLines(sc,lcs,cur){
+  const n=sc.buf.length,curLn=cur&&cur.key[0]==='d'?+cur.key.slice(1):null;
+  sc.pend={};
+  const keepAll=(short,long,err,at)=>{for(const x of lcs)sc.pend[x.i]=x.v;setMsg(short,long,err);sc.focus={key:'p'+at,p:0};return false;};
+  const ps=[];
+  for(const x of lcs){
+    let m=x.v.match(/^(CC|MM|DD|RR|[CMDRIAB])(\d*)$/),op,num;
+    if(m){op=m[1];num=+m[2]||1;}
+    else if((m=x.v.match(/^(\d+)([CMDRIAB])$/))){op=m[2];num=+m[1]||1;}
+    else return keepAll('Command not recognized',`"${x.v}" is not a valid line command. Correct it or blank it out.`,true,x.i);
+    if(x.i<0&&op!=='I'&&op!=='A')return keepAll('Invalid on this line',`"${x.v}" is not valid on the line that it was entered. Blank it out.`,true,x.i);
+    ps.push({i:x.i,op,num,v:x.v});
+  }
+  const blk={},ranges=[];
+  for(const p of ps)if(p.op.length===2)(blk[p.op]=blk[p.op]||[]).push(p);
+  for(const k in blk){
+    const a=blk[k].sort((x,y)=>x.i-y.i);
+    if(a.length%2)return keepAll('Block command incomplete',`Enter a matching "${k}" command to complete the block command pair.`,false,a[a.length-1].i);
+    for(let j=0;j<a.length;j+=2)ranges.push({op:k[0],a:a[j].i,b:a[j+1].i,num:Math.max(a[j].num,a[j+1].num),v:k});
+  }
+  for(const p of ps)if('DRCM'.includes(p.op))ranges.push({op:p.op,a:p.i,b:p.op==='R'?p.i:Math.min(n-1,p.i+p.num-1),num:p.op==='R'?p.num:1,v:p.v});
+  const srcs=ranges.filter(r=>r.op==='C'||r.op==='M'),dests=ps.filter(p=>p.op==='A'||p.op==='B');
+  if(srcs.length>1)return keepAll('Command conflict',`"${srcs[1].v}" conflicts with a previous "${srcs[0].v}" command. Delete one.`,true,srcs[1].a);
+  if(dests.length>1)return keepAll('Command conflict',`"${dests[1].v}" conflicts with a previous "${dests[0].v}" command. Delete one.`,true,dests[1].i);
+  const src=srcs[0],dest=dests[0];
+  if(src&&!dest)return keepAll(src.op==='C'?'COPY pending':'MOVE pending','An A or B line command or a valid label has not been specified.',false,src.a);
+  if(dest&&!src)return keepAll(`${dest.op} pending`,`"${dest.v}" needs a C, CC, M or MM line command to say which lines to copy or move.`,false,dest.i);
+  if(src&&dest.i>=src.a&&dest.i<=src.b&&!(dest.op==='A'&&dest.i===src.b)&&!(dest.op==='B'&&dest.i===src.a))
+    return keepAll('Command conflict',`"${dest.v}" is within the range of the "${src.v}" command. Correct the line commands.`,true,dest.i);
+  const del=new Set(),rep={},insN={};
+  for(const r of ranges){
+    if(r.op==='D'||r.op==='M')for(let k=r.a;k<=r.b;k++)del.add(k);
+    if(r.op==='R')(rep[r.b]=rep[r.b]||[]).push(r);
+  }
+  for(const p of ps)if(p.op==='I')insN[p.i]=(insN[p.i]||0)+p.num;
+  const col=sc.col||0,out=[],oins=[],omk={};let focus=null;
+  const put=(t,ins,mk)=>{if(mk)omk[out.length]=mk;out.push(t);oins.push(ins);};
+  const copies=()=>{for(let r=0;r<dest.num;r++)for(let k=src.a;k<=src.b;k++)put(sc.buf[k],false);};
+  const indent=t=>{const k=t.search(/\S/);return k<0?0:Math.max(0,k-col);};
+  const addIns=(cnt,p)=>{if(!focus)focus={row:out.length,p};for(let k=0;k<cnt;k++)put('',true);};
+  if(insN[-1])addIns(insN[-1],0);
+  if(dest&&dest.i<0)copies();
+  for(let i=0;i<n;i++){
+    if(dest&&dest.i===i&&dest.op==='B')copies();
+    const isIns=sc.ins[i],typed=!!(sc.typed&&sc.typed[i]);
+    if(!del.has(i)&&!(isIns&&!typed))put(sc.buf[i],false,sc.marks&&sc.marks[i]);
+    for(const r of rep[i]||[])for(let t=0;t<r.num;t++)for(let k=r.a;k<=r.b;k++)put(sc.buf[k],false);
+    if(dest&&dest.i===i&&dest.op==='A')copies();
+    if(insN[i])addIns(insN[i],indent(sc.buf[i]));
+    // typing on the last insert line, with the cursor still there, opens another one
+    else if(isIns&&typed&&i===curLn&&!sc.ins[i+1]&&!del.has(i))addIns(1,indent(sc.buf[i]));
+  }
+  if(ranges.length||dests.length||(src&&dest))sc.dirty=!sc.view;
+  sc.buf=out;sc.ins=oins;sc.marks=Object.keys(omk).length?omk:null;sc.typed={};
+  if(focus){sc.focus={key:'d'+focus.row,p:focus.p};sc.reveal=focus.row;}
+  return true;
+}
+
+/* FIND / CHANGE, searching columns 1-72 without regard to case */
+function edTokens(raw){
+  const out=[];raw.replace(/'([^']*)'|"([^"]*)"|(\S+)/g,(m,a,b,w)=>{out.push(a!=null?{s:a,q:1}:b!=null?{s:b,q:1}:{s:w});return m;});
+  return out;
+}
+function occurrences(sc,s){
+  const u=s.toUpperCase(),hits=[];if(!u)return hits;
+  sc.buf.forEach((l,i)=>{if(sc.ins[i])return;const t=l.slice(0,72).toUpperCase();for(let k=t.indexOf(u);k>=0;k=t.indexOf(u,k+1))hits.push({i,c:k});});
+  return hits;
+}
+// where a search starts: the cursor, or the top of the screen when the cursor is on the command line
+function searchFrom(sc,cur){
+  if(cur&&cur.key[0]==='d')return{i:+cur.key.slice(1),c:(sc.col||0)+cur.p};
+  return{i:firstShown(sc),c:-1};
+}
+function firstShown(){
+  const b=$('#body');if(!b)return 0;const bt=b.getBoundingClientRect().top;
+  for(const el of term.querySelectorAll('input.dat'))if(el.getBoundingClientRect().top>=bt-1)return +el.dataset.ln;
+  return 0;
+}
+function gotoHit(sc,h,len){
+  const col=sc.col||0;
+  if(h.c<col||h.c+Math.max(len,1)>col+72)sc.col=h.c+len>72?8:0;
+  sc.focus={key:'d'+h.i,p:h.c-(sc.col||0)};sc.reveal=h.i;
+}
+function edFind(sc,s,how,cur){
+  const q=`CHARS '${s.toUpperCase()}'`;
+  if(!s){setMsg('Enter string','Specify the characters to be found.',true);return;}
+  const hits=occurrences(sc,s);sc.lf={s};
+  if(!hits.length){setMsg(`No ${q} found`,`${q} - not found on any data lines (cols 1 to 72).`,true);return;}
+  if(how==='ALL'){gotoHit(sc,hits[0],s.length);setMsg(`${hits.length} ${q}`,`${q} - found ${hits.length} times within columns 1 to 72.`,false);return;}
+  if(how==='FIRST'||how==='LAST'){const h=how==='FIRST'?hits[0]:hits[hits.length-1];gotoHit(sc,h,s.length);setMsg(`${q} found`,`Search for ${q} in columns 1 to 72 was successful.`,false);return;}
+  const f=sc.wrap?{i:how==='PREV'?1e9:-1,c:-1}:searchFrom(sc,cur);sc.wrap=false;
+  const h=how==='PREV'?[...hits].reverse().find(x=>x.i<f.i||(x.i===f.i&&x.c<f.c)):hits.find(x=>x.i>f.i||(x.i===f.i&&x.c>f.c));
+  if(!h){sc.wrap=true;
+    if(how==='PREV')setMsg('* Top of data reached *',`${q} - not found. Press RFIND key to continue from bottom.`,false);
+    else setMsg('*Bottom of data reached*',`${q} - not found. Press RFIND key to continue from top.`,false);
+    return;}
+  gotoHit(sc,h,s.length);setMsg(`${q} found`,`Search for ${q} in columns 1 to 72 was successful.`,false);
+}
+function edChange(sc,from,to,how,cur){
+  const q=`CHARS '${from.toUpperCase()}'`;
+  if(sc.view){setMsg('Change not allowed','Data cannot be changed in VIEW. Use EDIT.',true);return;}
+  if(!from){setMsg('Enter string','Specify the characters to be changed.',true);return;}
+  if(sc.caps!==false)to=to.toUpperCase();
+  sc.lc={from,to};
+  const hits=occurrences(sc,from);
+  if(!hits.length){setMsg(`No ${q} found`,`${q} - not found on any data lines (cols 1 to 72).`,true);return;}
+  const swap=(h)=>{const l=sc.buf[h.i];const nl=l.slice(0,h.c)+to+l.slice(h.c+from.length);if(clean(nl).length>80)return false;sc.buf[h.i]=clean(nl);sc.marks=sc.marks||{};sc.marks[h.i]='C';sc.dirty=true;return true;};
+  if(how==='ALL'){
+    let cnt=0;const lines=new Set();
+    for(const h of [...hits].reverse())if(swap(h)){cnt++;lines.add(h.i);}
+    gotoHit(sc,hits[0],to.length);
+    setMsg(`${q} changed`,`${q} - changed to '${to}' ${cnt} times on ${lines.size} line(s).`,false);return;
+  }
+  const f=sc.wrap?{i:-1,c:-1}:searchFrom(sc,cur);sc.wrap=false;
+  const h=hits.find(x=>x.i>f.i||(x.i===f.i&&x.c>=f.c));
+  if(!h){sc.wrap=true;setMsg('*Bottom of data reached*',`${q} - not found. Press RCHANGE key to continue from top.`,false);return;}
+  if(!swap(h)){setMsg('Change error',`The changed line would be longer than 80 characters.`,true);return;}
+  // the cursor goes to the end of the changed string
+  gotoHit(sc,{i:h.i,c:h.c+to.length},0);
+  setMsg(`${q} changed`,`${q} - changed to '${to}'.`,false);
 }
 
 /* ---------- TSO line-mode messages ---------- */
@@ -2192,22 +2450,29 @@ function startJob(job,k){
 }
 
 /* ---------- navigation ---------- */
+// =n ends every function on the way (an edit session is saved, as END would) and goes to option n
 function jump(opt){
   opt=opt.replace(/^=/,'');
+  for(const s of stack)if(s.id==='edit'&&s.dirty&&!s.view)saveEdit(s);
   const base=stack[0];stack=[base];
   return select(opt);
 }
+let dsLevel=USER;
 function select(opt){
   switch(opt){
     case '1':push({id:'memlist',dsn:USER+'.JCL',view:true});return true;
     case '2':push({id:'memlist',dsn:USER+'.JCL'});return true;
-    case '3':case '3.4':push({id:'dslist',level:USER});return true;
+    case '3':push({id:'util'});return true;
+    case '3.4':push({id:'dslp',level:dsLevel});return true;
     case '3.17':push({id:'udlist',dir:'/u/user01/'});return true;
     case 'SD':case 'S':push({id:'sdsfmenu'});return true;
     case 'SD.ST':case 'SD;ST':push({id:'sdsfmenu'});push({id:'st',panel:'ST'});return true;
     case 'X':push({id:'tso',lines:['READY','']});top().ready=true;return true;
     case '':return true;
-    default:setMsg('Invalid option','Options 1, 2, 3.4, 3.17 and SD work in this simulator.',true);return false;
+    default:
+      if(/^(0|4|5|6|7|9|10|11|12|13)(\.\S*)?$|^3\.\d+$/.test(opt))setMsg('Invalid option',`Option ${opt} is not available in this simulator. Use 1, 2, 3, 3.4, 3.17 or SD.`,true);
+      else setMsg('Invalid option','The option that was entered was not valid.',true);
+      return false;
   }
 }
 
@@ -2215,6 +2480,21 @@ function lineCmds(){return [...document.querySelectorAll('input.lc')].map(x=>({i
 
 const HANDLE={
 menu(sc,cmd){if(cmd)select(cmd);},
+util(sc,cmd){
+  if(!cmd)return;
+  if(/^\d+$/.test(cmd)){select('3.'+cmd);return;}
+  setMsg('Invalid option','The option that was entered was not valid.',true);
+},
+dslp(sc,cmd){
+  const f=$('#dslev');let lev=(f?f.value:'').trim().toUpperCase().replace(/^'|'$/g,'');
+  sc.level=lev;
+  if(cmd==='V'||cmd==='P'||cmd==='PV'){setMsg('Invalid option',`Option ${cmd} is not available in this simulator. Leave the option blank to list data sets.`,true);return;}
+  if(cmd){setMsg('Invalid option','The option that was entered was not valid.',true);return;}
+  if(!lev){setMsg('Enter required field','Enter required field at the cursor position.',true);sc.focus={key:'#dslev',p:0};return;}
+  // a trailing * or .* means "everything under this level"
+  lev=lev.replace(/\.?\*+$/,'');
+  dsLevel=sc.level;push({id:'dslist',level:lev});
+},
 memlist(sc,cmd){
   const e=S.catalog[sc.dsn];
   for(const{i,v}of lineCmds()){
@@ -2233,22 +2513,46 @@ memlist(sc,cmd){
     setMsg('Invalid command','',true);
   }
 },
-edit(sc,cmd){
+// line commands are handled first, then the primary command
+edit(sc,cmd,raw,cur){
+  if(!edLines(sc,sc._lcs||[],cur))return;
   if(!cmd)return;
-  const w=cmd.split(/\s+/)[0];
-  if(w==='SUB'||w==='SUBMIT'){submit(sc.buf);return;}
-  if(w==='SAVE'){if(sc.view){setMsg('Save not allowed','Use EDIT to change this member.',true);return;}saveEdit(sc);setMsg(sc.mem?'Member '+sc.mem+' saved':'Data set saved','',false);return;}
-  if(w==='CAN'||w==='CANCEL'){stack.pop();return;}
-  if(w==='END'){leaveEdit(sc);return;}
-  if(w==='RES'||w==='RESET'){sc.marks=null;return;}
-  if(w==='JCK'||w==='JCLCHECK'){jck(sc);return;}
-  if(w==='CAPS'){const a=cmd.split(/\s+/)[1]||'ON';if(a!=='ON'&&a!=='OFF'){setMsg('Invalid value','Use CAPS ON or CAPS OFF.',true);return;}sc.caps=a==='ON';setMsg('CAPS '+a,'',false);return;}
-  setMsg('Invalid command',`${w} is not supported here. Try SUB, JCK, SAVE, CAPS, CAN or END.`,true);
+  const tk=edTokens(raw),w=tk[0].s.toUpperCase(),args=tk.slice(1),kw=a=>a.q?'':a.s.toUpperCase();
+  switch(w){
+  case 'SUB':case 'SUBMIT':dropIns(sc);submit(sc.buf);return;
+  case 'SAVE':
+    if(sc.view){setMsg('Save not allowed','Data cannot be saved in VIEW. Use EDIT to change this member.',true);return;}
+    saveEdit(sc);setMsg(sc.mem?`Member ${sc.mem} saved`:'Data set saved',sc.mem?`${sc.mem} was saved in ${sc.dsn}.`:`${sc.dsn} was replaced.`,false);return;
+  case 'CAN':case 'CANCEL':stack.pop();return;
+  case 'END':dropIns(sc);leaveEdit(sc);return;
+  case 'RES':case 'RESET':sc.marks=null;sc.notes=null;sc.pend={};return;
+  case 'JCK':case 'JCLCHECK':dropIns(sc);jck(sc);return;
+  case 'CAPS':{const a=args[0]?kw(args[0]):'ON';if(a!=='ON'&&a!=='OFF'){setMsg('Invalid parameter','ON and OFF are the only valid parameters for the CAPS command.',true);return;}sc.caps=a==='ON';return;}
+  case 'F':case 'FIND':{
+    let s=null,how='NEXT';
+    for(const a of args){const k=kw(a);if(['ALL','FIRST','LAST','NEXT','PREV'].includes(k))how=k;else if(k==='CHARS'||k==='CHAR');else if(s==null)s=a.s;}
+    edFind(sc,s||'',how,cur);return;}
+  case 'C':case 'CHG':case 'CHANGE':{
+    const ss=[];let how='NEXT';
+    for(const a of args){const k=kw(a);if(k==='ALL')how='ALL';else if(k==='NEXT'||k==='CHARS'||k==='CHAR');else ss.push(a.s);}
+    if(ss.length<2){setMsg('Enter string',`CHANGE needs two strings, for example C 'OLD' 'NEW' ALL.`,true);return;}
+    edChange(sc,ss[0],ss[1],how,cur);return;}
+  case 'L':case 'LOC':case 'LOCATE':{
+    const v=args[0]?args[0].s:'';
+    if(!/^\d{1,8}$/.test(v)){setMsg('Invalid parameter','The parameter must be a line number (8 digits or fewer).',true);return;}
+    const ix=Math.min(sc.buf.length-1,Math.floor(+v/100)-1);
+    if(ix<0)sc.scroll=0;else{sc.reveal=ix;sc.revealTop=true;}return;}
+  case 'TOP':sc.scroll=0;return;
+  case 'BOT':case 'BOTTOM':sc.scroll='BOT';return;
+  }
+  setMsg('Invalid command',`'${w}' is not a valid edit command.`,true);
 },
-browse(sc,cmd){
+browse(sc,cmd,raw){
   const b=$('#body');if(!b)return;
+  const tk=edTokens(raw||''),w=tk.length?tk[0].s.toUpperCase():'';
+  if(w==='F'||w==='FIND'){browseFind(sc,tk[1]?tk[1].s:'');return;}
   if(cmd==='TOP'||cmd==='M')sc.scroll=0;
-  else if(cmd==='BOT'||cmd==='BOTTOM')sc.scroll=b.scrollHeight;
+  else if(cmd==='BOT'||cmd==='BOTTOM')sc.scroll='BOT';
   else if(cmd==='ST'||cmd==='H'||cmd==='O'||cmd==='I'||cmd==='DA'){if(sc.sdsf){stack=stack.filter(s=>s.id!=='st'&&s.id!=='dd'&&s.id!=='browse');push({id:'st',panel:cmd});}}
   else if(cmd)setMsg('Invalid command','',true);
 },
@@ -2364,58 +2668,243 @@ function openSpool(j,s){
   push({id:'browse',sdsf:true,title:`SDSF OUTPUT DISPLAY ${pad(j.name,8)} ${j.id}  DSID ${lpad(s?s.dsid:2,5)}`,lines});
 }
 function leaveEdit(sc){
-  if(!sc.view&&sc.dirty){saveEdit(sc);}
+  const changed=!sc.view&&sc.dirty;
   if(!sc.view)saveEdit(sc);
   stack.pop();
   const t=top();
-  if(t&&t.id==='memlist'&&sc.mem){t.prompt=t.prompt||{};t.prompt[sc.mem]=sc.view?'*Viewed':'*Edited';if(!sc.view)setMsg('Member '+sc.mem+' saved','',false);}
+  if(t&&t.id==='memlist'&&sc.mem){t.prompt=t.prompt||{};t.prompt[sc.mem]=sc.view?'*Viewed':'*Edited';if(changed)setMsg(`Member ${sc.mem} saved`,`${sc.mem} was saved in ${sc.dsn}.`,false);}
+}
+
+// FIND in browse: the line found goes to the top of the screen
+function browseFind(sc,s){
+  if(s==null)s=sc.lf||'';
+  if(!s){setMsg('Enter string','Specify the characters to be found.',true);return;}
+  sc.lf=s;const u=s.toUpperCase(),q=`CHARS '${u}'`;
+  const txt=sc.lines.map(l=>String(l.t!==undefined?l.t:l).toUpperCase());
+  let k=txt.findIndex((t,i)=>i>(sc.wrap?-1:(sc.fi!=null?sc.fi:-1))&&t.includes(u));sc.wrap=false;
+  if(k<0){
+    if(txt.some(t=>t.includes(u))){sc.wrap=true;setMsg('*Bottom of data reached*',`${q} - not found. Press RFIND key to continue from top.`,false);}
+    else setMsg(`No ${q} found`,`${q} - not found on any data lines.`,true);
+    return;
+  }
+  sc.fi=k;sc.scroll=(k+1)*lineH();
+  setMsg(`${q} found`,`Search for ${q} was successful.`,false);
 }
 
 /* ---------- keys ---------- */
-let busy=false;
+let busy=false,lastSdsf='';
+const isSdsf=sc=>['sdsfmenu','st','dd'].includes(sc.id)||(sc.id==='browse'&&sc.sdsf);
+// the Scroll ===> field: CSR, PAGE, HALF, DATA, MAX or a number of lines
+function readScroll(){
+  const f=$('#scroll');if(!f)return scrollAmt;
+  const v=f.value.trim().toUpperCase()||'CSR';
+  const m={C:'CSR',CSR:'CSR',P:'PAGE',PAGE:'PAGE',H:'HALF',HALF:'HALF',D:'DATA',DATA:'DATA',M:'MAX',MAX:'MAX'}[v];
+  if(m){if(m!=='MAX')scrollAmt=m;f.value=scrollAmt;return m;}
+  if(/^\d{1,4}$/.test(v)&&+v>0){scrollAmt=String(+v);return scrollAmt;}
+  setMsg('Invalid scroll amount','Valid: M (MAX), P (PAGE), H (HALF), C (CSR), D (DATA) or 1 to 9999.',true);
+  return null;
+}
 function enter(){
   if(busy)return;
-  busy=true;drawOia(true);
+  const cur=curPos();
+  busy=true;inhibit=false;drawOia(true);
   setTimeout(()=>{
     busy=false;
     const sc=top();
-    syncEdit();
+    keepScroll();
+    if(sc.id==='edit')sc._lcs=syncEdit();
     const ci=$('#cmd');const raw=ci?ci.value.trim():'';const cmd=raw.toUpperCase();
     msg=null;
+    if(readScroll()===null){if(sc.id==='edit'){sc.pend={};for(const x of sc._lcs)sc.pend[x.i]=x.v;}sc.focus={key:'#scroll',p:0};render();return;}
+    if(isSdsf(sc)&&cmd)lastSdsf=raw;
     if(cmd.startsWith('=')){jump(cmd.slice(1));}
     else if(cmd==='SDSF'&&sc.id!=='tso'){push({id:'sdsfmenu'});}
-    else HANDLE[sc.id](sc,cmd,raw);
+    else HANDLE[sc.id](sc,cmd,raw,cur);
+    // in edit, Enter alone leaves the cursor where it was, like ISPF
+    if(top()===sc&&sc.id==='edit'&&!cmd&&!sc.focus&&cur)sc.focus=cur;
     render();
   },140);
 }
+// F7/F8: scroll by the Scroll amount; a number or M on the command line overrides it once
+function doScroll(sc,dir,cur){
+  const b=$('#body');if(!b)return;
+  const ci=$('#cmd'),cv=ci?ci.value.trim().toUpperCase():'';
+  let a=readScroll();if(a===null){if(sc.id==='edit')sc._lcs=syncEdit();render();return;}
+  if(/^M(AX)?$/.test(cv)){a='MAX';ci.value='';}else if(/^\d{1,4}$/.test(cv)){a=cv;ci.value='';}
+  const lh=lineH(),vis=Math.max(1,Math.floor(b.clientHeight/lh+0.01));
+  let lines;
+  if(a==='MAX')lines=dir>0?Math.max(0,botTop(b)-b.scrollTop)/lh:1e6;
+  else if(a==='PAGE')lines=vis;else if(a==='HALF')lines=Math.max(1,vis>>1);else if(a==='DATA')lines=Math.max(1,vis-1);
+  else if(/^\d+$/.test(a))lines=+a;
+  else{ // CSR: the cursor line goes to the top (F8) or bottom (F7); without a cursor line, a page
+    const el=cur&&fel(cur.key);
+    if(el&&b.contains(el)){const row=Math.round((el.getBoundingClientRect().top-b.getBoundingClientRect().top)/lh);lines=dir>0?(row>0?row:vis):(row<vis-1?vis-1-row:vis);}
+    else lines=vis;
+  }
+  const target=Math.max(0,Math.round(b.scrollTop/lh)*lh+dir*Math.abs(lines)*lh);
+  if(sc.id==='edit'){
+    keepScroll();const lcs=syncEdit();msg=null;
+    if(edLines(sc,lcs,cur)){sc.scroll=target;sc.focus=null;}
+    render();return;
+  }
+  b.scrollTop=target;
+  const c=$('#cmd');if(c)c.focus({preventScroll:true});
+}
+// F10/F11: edit shows columns 1-72 or 9-80; other screens slide sideways
+function doSide(sc,dir,cur){
+  if(sc.id==='edit'){keepScroll();const lcs=syncEdit();msg=null;if(edLines(sc,lcs,cur))sc.col=dir>0?8:0;render();return;}
+  const b=$('#body');if(!b)return;
+  b.scrollLeft=Math.max(0,b.scrollLeft+dir*40*(term.getBoundingClientRect().width/80));
+}
+// keep typed data and line commands on screen when a key only shows a message
+function holdEdit(sc){keepScroll();msg=null;if(sc.id!=='edit')return;const l=syncEdit();sc.pend={};for(const x of l)sc.pend[x.i]=x.v;sc.focus=curPos();}
 function pf(n){
   if(busy)return;
-  const sc=top();
-  if(n===7||n===8){const b=$('#body');if(b){const lh=parseFloat(getComputedStyle(b).fontSize)*1.38;b.scrollTop+=(n===8?1:-1)*(b.clientHeight-lh);}return;}
+  const sc=top(),cur=curPos();inhibit=false;
+  if(n===7||n===8){doScroll(sc,n===8?1:-1,cur);return;}
+  if(n===10||n===11){
+    if(['menu','util','dslp'].includes(sc.id)){msg=null;setMsg('Not available','The action bar is not available in this simulator.',false);render();return;}
+    doSide(sc,n===11?1:-1,cur);return;}
+  if(n===5||n===6){
+    if(sc.id==='edit'){
+      keepScroll();const lcs=syncEdit();msg=null;
+      if(edLines(sc,lcs,cur)){
+        if(n===5){if(sc.lf)edFind(sc,sc.lf.s,'NEXT',cur);else setMsg('No FIND to repeat','Enter a FIND command first.',true);}
+        else{if(sc.lc)edChange(sc,sc.lc.from,sc.lc.to,'NEXT',cur);else setMsg('No CHANGE to repeat','Enter a CHANGE command first.',true);}
+      }
+      render();return;}
+    if(sc.id==='browse'&&n===5){keepScroll();msg=null;browseFind(sc,null);render();return;}
+    return;
+  }
+  if(n===12&&isSdsf(sc)){const c=$('#cmd');if(c){c.value=lastSdsf;c.focus();setCaret(c,lastSdsf.length);}return;}
+  if(n===4&&isSdsf(sc)){msg=null;while(stack.length>1&&top().id!=='sdsfmenu')stack.pop();render();return;}
   if(n===3||n===12){
     msg=null;
     if(sc.id==='tso'){HANDLE.tso(sc,'');render();return;}
-    if(sc.id==='edit'){syncEdit();if(n===3)leaveEdit(sc);else stack.pop();render();return;}
+    if(sc.id==='edit'){
+      if(n===12){stack.pop();render();return;}
+      // END processes what was typed first, as ISPF does
+      keepScroll();const lcs=syncEdit();
+      if(edLines(sc,lcs,cur)){dropIns(sc);leaveEdit(sc);}
+      render();return;
+    }
     if(stack.length>1){pop();render();}
     else{push({id:'tso',lines:['READY','']});top().ready=true;render();}
     return;
   }
-  if(n===1){setMsg('Help','Use the guide beside the screen. Enter runs, F3 goes back.',false);render();return;}
+  if(n===1){holdEdit(sc);setMsg('Help','Use the guide beside the screen. Enter runs, F3 goes back.',false);render();return;}
+  if(n===2||n===9){holdEdit(sc);setMsg('Not available',`${n===2?'SPLIT':'SWAP'} is not available in this simulator.`,false);render();return;}
+}
+
+/* 3270-style fields: replace mode, auto-skip, Tab/Home/Newline and a cursor that moves on the grid */
+const chW=()=>term.getBoundingClientRect().width/80;
+function fields(){
+  const b=$('#body'),br=b&&b.getBoundingClientRect();
+  return [...term.querySelectorAll('input.f')].filter(el=>{
+    if(b&&b.contains(el)){const r=el.getBoundingClientRect();return r.top>=br.top-2&&r.bottom<=br.bottom+2&&r.right>br.left&&r.left<br.right;}
+    return true;
+  });
+}
+function nextField(f,dir){const a=fields();if(!a.length)return null;let k=a.indexOf(f);if(k<0)return a[0];k=(k+dir+a.length)%a.length;return a[k];}
+function place(f,p){f.focus({preventScroll:true});setCaret(f,p);}
+function grid(){
+  const tr=term.getBoundingClientRect(),lh=lineH(),cw=chW();
+  return fields().map(el=>{const r=el.getBoundingClientRect();return{el,row:Math.round((r.top-tr.top)/lh),c0:Math.round((r.left-tr.left)/cw),len:el.maxLength>0?el.maxLength:Math.round(r.width/cw)};});
+}
+let stickyCol=null;
+function vertical(f,dir){
+  const g=grid(),me=g.find(x=>x.el===f);if(!me)return;
+  const col=stickyCol!=null?stickyCol:me.c0+f.selectionStart;
+  const rows=[...new Set(g.map(x=>x.row))].sort((a,b)=>a-b);
+  const r=rows[(rows.indexOf(me.row)+dir+rows.length)%rows.length];
+  const inRow=g.filter(x=>x.row===r);
+  const t=inRow.find(x=>col>=x.c0&&col<x.c0+x.len)||inRow.reduce((a,x)=>{const d=x=>col<x.c0?x.c0-col:col-(x.c0+x.len-1);return d(x)<d(a)?x:a;});
+  place(t.el,col-t.c0);stickyCol=col;
+}
+function newline(f){
+  const g=grid(),me=g.find(x=>x.el===f);if(!me)return;
+  const rows=[...new Set(g.map(x=>x.row))].sort((a,b)=>a-b);
+  const r=rows[(rows.indexOf(me.row)+1)%rows.length];
+  place(g.filter(x=>x.row===r).sort((a,b)=>a.c0-b.c0)[0].el,0);
+}
+function typeChar(f,ch,depth=0){
+  if(depth>3)return;
+  if(f.readOnly){inhibit=true;drawOia();return;}
+  const max=f.maxLength>0?f.maxLength:999;
+  let v=f.value,p=f.selectionStart;const q=f.selectionEnd;
+  if(q>p)v=v.slice(0,p)+v.slice(q);
+  if(p>=max){const nf=nextField(f,1);if(nf&&nf!==f){place(nf,0);typeChar(nf,ch,depth+1);}return;}
+  if(insMode){
+    if(v.replace(/\s+$/,'').length>=max){inhibit=true;drawOia();return;} // no room to insert: X <>
+    v=(padx(v.slice(0,p),p)+ch+v.slice(p)).slice(0,max);
+  }else v=padx(v.slice(0,p),p)+ch+v.slice(p+1);
+  f.value=v;f.dataset.t='1';
+  if(p+1>=max){const nf=nextField(f,1);if(nf&&nf!==f)place(nf,0);else f.setSelectionRange(p+1,p+1);}
+  else f.setSelectionRange(p+1,p+1);
 }
 document.addEventListener('keydown',ev=>{
-  const t=ev.target;
-  const inEd=t&&t.id==='ed';
+  const t=ev.target,inTerm=!!(t&&t.tagName==='INPUT'&&term.contains(t));
+  if(ev.key!=='ArrowUp'&&ev.key!=='ArrowDown')stickyCol=null;
   if(ev.key==='Enter'){
-    if(inEd&&!ev.ctrlKey)return;
     if(t&&t.closest&&t.closest('.guide'))return;
-    ev.preventDefault();enter();return;
+    ev.preventDefault();
+    if(ev.shiftKey&&inTerm){newline(t);return;} // Shift+Enter is the 3270 Newline key
+    enter();return;
   }
   const m=/^F(\d{1,2})$/.exec(ev.key);
-  if(m&&[1,3,7,8,12].includes(+m[1])){ev.preventDefault();pf(+m[1]);return;}
+  if(m&&+m[1]>=1&&+m[1]<=12){ev.preventDefault();pf(+m[1]);return;}
   if(ev.key==='Escape'){ev.preventDefault();pf(3);return;}
-  if(!inEd&&(ev.key==='PageDown'||ev.key==='PageUp')){ev.preventDefault();pf(ev.key==='PageDown'?8:7);}
+  if(ev.key==='PageDown'||ev.key==='PageUp'){ev.preventDefault();pf(ev.key==='PageDown'?8:7);return;}
+  if(ev.key==='Insert'){ev.preventDefault();insMode=!insMode;drawOia();return;}
+  if(!inTerm||ev.isComposing||ev.key==='Process'||ev.altKey||ev.metaKey)return;
+  if(inhibit){inhibit=false;drawOia();}
+  const p=t.selectionStart,max=t.maxLength>0?t.maxLength:999;
+  switch(ev.key){
+    case 'Tab':{ev.preventDefault();
+      if(ev.shiftKey&&p>0){setCaret(t,0);return;}  // Backtab: start of this field, then the field before
+      const nf=nextField(t,ev.shiftKey?-1:1);if(nf)place(nf,0);return;}
+    case 'Home':{if(ev.shiftKey)return;ev.preventDefault();const a=fields();if(a.length)place(a[0],0);return;}
+    case 'ArrowUp':case 'ArrowDown':ev.preventDefault();vertical(t,ev.key==='ArrowDown'?1:-1);return;
+    case 'ArrowLeft':if(ev.shiftKey||ev.ctrlKey)return;
+      if(p===0&&t.selectionEnd===0){ev.preventDefault();const pf_=nextField(t,-1);if(pf_)place(pf_,(pf_.maxLength>0?pf_.maxLength:1)-1);}
+      return;
+    case 'ArrowRight':if(ev.shiftKey||ev.ctrlKey)return;
+      ev.preventDefault();
+      if(p>=max-1){const nf=nextField(t,1);if(nf)place(nf,0);}else setCaret(t,p+1);
+      return;
+    case 'Backspace':if(p===0&&t.selectionEnd===0)ev.preventDefault();return;
+    case 'Delete':if(ev.ctrlKey){ev.preventDefault();if(!t.readOnly){t.value=t.value.slice(0,p);t.dataset.t='1';setCaret(t,p);}}return; // Erase EOF
+  }
+  if(ev.ctrlKey)return;
+  if(ev.key.length===1){ev.preventDefault();typeChar(t,ev.key);}
+});
+term.addEventListener('input',ev=>{const t=ev.target;if(t.classList&&t.classList.contains('f'))t.dataset.t='1';});
+// pasting several lines into the edit data area fills the following lines at the same column
+term.addEventListener('paste',ev=>{
+  const f=ev.target,sc=top();
+  if(!f.classList||!f.classList.contains('dat')||f.readOnly||sc.id!=='edit')return;
+  const txt=(ev.clipboardData||window.clipboardData).getData('text');
+  if(!/\n/.test(txt))return;
+  ev.preventDefault();
+  keepScroll();const lcs=syncEdit();
+  const lines=txt.replace(/\r/g,'').replace(/\t/g,' ').replace(/\n$/,'').split('\n');
+  const i0=+f.dataset.ln,c0=(sc.col||0)+f.selectionStart;
+  sc.typed=sc.typed||{};
+  lines.forEach((t,k)=>{
+    const i=i0+k;if(i>=sc.buf.length){sc.buf.push('');sc.ins.push(false);}
+    const l=sc.buf[i],nt=sc.caps!==false?t.toUpperCase():t;
+    sc.buf[i]=clean((padx(l.slice(0,c0),c0)+nt+l.slice(c0+nt.length)).slice(0,80));
+    if(sc.ins[i])sc.typed[i]=true;
+  });
+  sc.dirty=true;sc.pend={};for(const x of lcs)sc.pend[x.i]=x.v;
+  const last=i0+lines.length-1;
+  sc.focus={key:'d'+last,p:Math.min(71,c0-(sc.col||0)+lines[lines.length-1].length)};sc.reveal=null;
+  render();
 });
 term.addEventListener('click',ev=>{
+  // clicking past the end of the data in a field puts the cursor exactly there, as on a 3270
+  const fi=ev.target.closest('input.f');
+  if(fi){const p=Math.floor((ev.clientX-fi.getBoundingClientRect().left)/chW());if(p>fi.value.length)setCaret(fi,p);stickyCol=null;return;}
   const pfE=ev.target.closest('[data-pf]');if(pfE){pf(+pfE.dataset.pf);return;}
   const opt=ev.target.closest('[data-opt]');
   if(opt&&opt.dataset.opt){const ci=$('#cmd');if(ci){ci.value=opt.dataset.opt;enter();}return;}
