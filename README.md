@@ -299,6 +299,7 @@ ISPF の CAPS ON と同じ動作です。小文字を使いたいときは、`Co
 - **サンプル JCL を追加する**: `const SAMPLES={` の中に、`名前:[ "1行目", "2行目", ... ]` の形で追加します。再読み込みすると、新しいサンプルが `USER01.JCL` に自動で追加されます。保存済みのデータは消えません。
 - **プログラム（PGM=）を追加する**: `const PROGRAMS={` の中に関数を追加します。書き方は [docs/how-it-works.md](docs/how-it-works.md) を見てください。
 - **エラーのテストを流す**: GitHub Pages の `tests/run.html`（またはローカルサーバー上の同じファイル）を開くと、JCL エラーのテスト（約140件）と演習の解答例の確認を一度に実行して、成功・失敗を一覧にします。テストは保存データに触れません。テストの中身は [tests/cases.js](tests/cases.js)、マニュアル上の全エラーとの対応は [docs/error-catalog.md](docs/error-catalog.md) にあります。
+- **エラー一覧を作り直す**: [docs/error-catalog.md](docs/error-catalog.md) は `tools/make_catalog.py` で作ります。マニュアルの PDF をテキストにしたファイルのフォルダを環境変数 `ZOS_TEXT_DIR` で渡します。マニュアルの文章は IBM の著作物なので、一覧にはメッセージ ID と出典のページだけを載せ、文面や説明は写しません。
 - **連携部分を変えたとき**: 連携のやり取り（`LINK` モジュール、`BroadcastChannel('mvs-link-v1')`）は、MVS コンソール シミュレータ側の結合テスト [`tests/link-e2e.html`](https://son-jo-sokora.github.io/mvs-console-sim/tests/link-e2e.html) で、この端末を実際に動かして確かめています。メッセージの形や `LINKRPT` / `LINKASK` を変えたら、そちらも流してください。
 
 ---
